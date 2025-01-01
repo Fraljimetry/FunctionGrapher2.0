@@ -1,1806 +1,1607 @@
-// Date: 2023.4~5; 2024.9~11
-// Designer: Fraljimetry
+/// Date: 2023.4~5; 2024.9~11
+/// Designer: Fraljimetry
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Drawing.Imaging;
-using System.Media;
 using System.Reflection;
-using WMPLib;
+using System.Media;
 using System.Text;
+using WMPLib;
 
 namespace FunctionGrapher2._0
 {
+    /// <summary>
+    /// DISPLAY SECTION
+    /// </summary>
     public partial class Graph : Form
     {
-        private static SoundPlayer _clickSoundPlayer;
-        private static WindowsMediaPlayer _player;
-        private static Bitmap bitmap;
-        private static Rectangle rect;
+        // 1.PREPARATIONS
+        #region Fields
+        private static SoundPlayer ClickPlayer;
+        private static WindowsMediaPlayer MediaPlayer;
         private static DateTime TimeNow = new();
         private static TimeSpan TimeCount = new();
         private static System.Windows.Forms.Timer GraphTimer, ColorTimer, WaitTimer, DisplayTimer;
-        private static float ScalingFactor;
-        private static int elapsedSeconds, x_left, x_right, y_up, y_down;
-        private static readonly int X_LEFT_MAC = 620, X_RIGHT_MAC = 1520, Y_UP_MAC = 45, Y_DOWN_MAC = 945;
-        private static readonly int X_LEFT_MIC = 1565, X_RIGHT_MIC = 1765, Y_UP_MIC = 745, Y_DOWN_MIC = 945;
-        private static readonly int X_LEFT_CHECK = 1921, X_RIGHT_CHECK = 1922, Y_UP_CHECK = 1081, Y_DOWN_CHECK = 1082;
-        private static readonly int REF_POS_1 = 9, REF_POS_2 = 27;
-        private static int plot_loop, points_chosen, color_mode, contour_mode, point_number, times, export_number;
-        private static double timeElapsed, _currentPosition;
-        private static readonly double EPSILON = 0.03, STEPS = 0.25, DEVIATION = Math.PI / 12, EPS_DIFF_REAL = 0.5, EPS_DIFF_COMPLEX = 0.5, STEP_DIFF = 1, SIZE_DIFF = 1, PARAM_WIDTH = 5, INCREMENT_DEFAULT = 0.01, SHADE_DENSITY = 2;
-        private static double epsilon, steps, deviation, raw_thickness, size_for_extremities, decay_rate;
-        private static double[] scopes;
-        private static int[] borders;
-        private static bool waiting, commence_waiting, _isPaused = true, delete_coordinate, delete_point = true, swap_colors, complex_mode = true, auto_export, retain_graph, clicked, shade_rainbow, axes_drawn, Axes_drawn, is_main, drafted, main_drawn, text_changed, activate_mousemove, is_checking, address_error, is_resized, ctrlPressed, sftPressed, suppressKeyUp;
-        private static readonly Color CORRECT_GREEN = Color.FromArgb(192, 255, 192), ERROR_RED = Color.FromArgb(255, 192, 192), UNCHECKED_YELLOW = Color.FromArgb(255, 255, 128), READONLY_PURPLE = Color.FromArgb(255, 192, 255), COMBO_BLUE = Color.FromArgb(192, 255, 255), FOCUS_GRAY = Color.LightGray, BACKDROP_GRAY = Color.FromArgb(64, 64, 64), CONTROL_GRAY = Color.FromArgb(105, 105, 105), GRID_GRAY = Color.FromArgb(75, 255, 255, 255), UPPER_GOLD = Color.Gold, LOWER_BLUE = Color.RoyalBlue, ZERO_BLUE = Color.Lime, POLE_PURPLE = Color.Magenta, READONLY_GRAY = Color.Gainsboro;
-        private static readonly string ADDRESS_DEFAULT = @"C:\Users\Public", INPUT_DEFAULT = "z", GENERAL_DEFAULT = "e", THICKNESS_DEFAULT = "1", DENSENESS_DEFAULT = "1", DRAFT_DEFAULT = "Detailed historical info is documented here.\r\n\r\n", CAPTION_DEFAULT = "Yours inputs will be shown here.", BARREDCHARS = "_#!<>$%&@~:\'\"\\?=`[]{}\t";
-        private static string[] ExampleString;
-        private static ComplexMatrix output_table;
-        private static DoubleMatrix Output_table;
+        private static Graphics graphics;
+        private static Rectangle rectangle, rect_mac, rect_mic; // rect_: slightly larger than the display regions
+        private static Bitmap bmp_mac, bmp_mic, bmp_screen; // bmp_screen: snapshots
+        private static readonly Bitmap BMP_PIXEL = new(1, 1);
+        private static readonly Size SIZE_PIXEL = new(1, 1);
+        private static readonly SolidBrush BACK_BRUSH = new(Color.Black);
+        private static readonly Pen BDR_PEN = new(Color.Gray), _BDR_PEN = new(Color.White), AXES_PEN = new(Color.DarkGray, 4f);
+        private static readonly Color CORRECT_GREEN = Argb(192, 255, 192), ERROR_RED = Argb(255, 192, 192),
+            UNCHECK_YELLOW = Argb(255, 255, 128), READONLY_PURPLE = Argb(255, 192, 255),
+            COMBO_BLUE = Argb(192, 255, 255), FOCUS_GRAY = Color.LightGray, BACKDROP_GRAY = Argb(64, 64, 64),
+            CONTROL_GRAY = Argb(105, 105, 105), GRID_GRAY = Argb(75, 255, 255, 255), READONLY_GRAY = Color.Gainsboro,
+            UPPER_GOLD = Color.Gold, LOWER_BLUE = Color.RoyalBlue, ZERO_BLUE = Color.Lime, POLE_PURPLE = Color.Magenta;
 
-        #region Initializations
-        [DllImport("dwmapi.dll")]
-        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-        const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        static extern bool BlockInput([MarshalAs(UnmanagedType.Bool)] bool fBlockIt);
-        [DllImport("user32.dll")]
-        static extern bool HideCaret(IntPtr hWnd);
-        protected override void WndProc(ref Message m)
-        {
-            const int WM_NCLBUTTONDOWN = 0x00A1;
-            const int HTCAPTION = 0x0002;
-            if (m.Msg == WM_NCLBUTTONDOWN && m.WParam.ToInt32() == HTCAPTION) return;
-            base.WndProc(ref m);
-        } // Prevents dragging the titlebar
+        private static float scaling_factor; // Font size adaptation
+        private static readonly float GRID_WIDTH_1 = 3f, GRID_WIDTH_2 = 2f, CURVE_WIDTH_LIMIT = 20f;
+        private static int display_elapsed, x_left, x_right, y_up, y_down, color_mode, contour_mode,
+            loop_number, chosen_number, export_number, pixel_number, segment_number;
+        private static readonly int X_LEFT_MAC = 620, X_RIGHT_MAC = 1520, Y_UP_MAC = 45, Y_DOWN_MAC = 945,
+            X_LEFT_MIC = 1565, X_RIGHT_MIC = 1765, Y_UP_MIC = 745, Y_DOWN_MIC = 945, X_LEFT_CHECK = 1921,
+            X_RIGHT_CHECK = 1922, Y_UP_CHECK = 1081, Y_DOWN_CHECK = 1082, REF_POS_1 = 9, REF_POS_2 = 27,
+            WIDTH_IND = 22, HEIGHT_IND = 55, LEFT_SUPP = 11, TOP_SUPP = 45, GRID = 5, UPDATE = 5, REFRESH = 100, SLEEP = 200;
+        private static double title_elapsed, pause_pos, epsilon, stride, mod_stride, arg_stride, stride_real, size_real, decay;
+        private static readonly double STRIDE = 0.25, MOD = 0.25, ARG = Math.PI / 12, STRIDE_REAL = 1, EPS_REAL = 0.015,
+            EPS_COMPLEX = 0.015, SIZE_REAL = 0.5, DECAY = 0.2, DEPTH = 2, CURVE_WIDTH = 5, INCREMENT = 0.01, TITLE = 0.01;
+        private static int[] borders; // = new int[] { x_left, x_right, y_up, y_down };
+        private static double[] scopes; // WARNING: scopes[3] - scopes[2] < 0 < borders[3] - borders[2]
+        private static ComplexMatrix output_complex;
+        private static RealMatrix output_real;
+
+        private static bool is_flashing, is_paused = true, is_complex = true, delete_point = true, delete_coor, swap_colors,
+            is_auto, freeze_graph, clicked, shade, axes_drawn_mac, axes_drawn_mic, is_main, activate_mouse, is_checking,
+            error_input, error_address, is_resized, ctrl_pressed, sft_pressed, suppress_key_up, bdp_painted;
+        private static readonly string ADDRESS_DEFAULT = @"C:\Users\Public", DATE = "Oct, 2024", STOCKPILE = "stockpile",
+            INPUT_DEFAULT = "z", GENERAL_DEFAULT = "e", THICK_DEFAULT = "1", DENSE_DEFAULT = "1", MACRO = "MACRO",
+            MICRO = "MICRO", ZERO = "0", REMIND_EXPORT = "Snapshot saved at", REMIND_STORE = "History stored at",
+            CAPTION_DEFAULT = "Yours inputs will be shown here.", MISTAKES_HEAD = "\r\nCommon mistakes include:",
+            WRONG_FORMAT = "THE INPUT IS IN A WRONG FORMAT.", WRONG_ADDRESS = "THE ADDRESS DOES NOT EXIST.",
+            DISPLAY_ERROR = "UNAVAILABLE.", DRAFT_DEFAULT = "\r\nDetailed historical info is documented here.",
+            TEMP_BGM_NAME = "background_music", MUSIC = "music", SOUND = "click sound", TIP = "ReadOnly",
+            SEP_1 = new('>', 4), SEP_2 = new('<', 4), SEP = new('~', 4), _SEP = new('*', 20), TAB = new(' ', 4);
+        private static readonly string[] CONTOUR_MODES = new string[] { "Cartesian (x,y)", "Polar (r,θ)" },
+            COLOR_MODES = new string[] { "Commonplace", "Monochromatic", "Bichromatic", "Kaleidoscopic", "Miscellaneous" };
+        #endregion
+
+        #region Initilizations
         public Graph()
         {
             InitializeComponent();
-            SetTitleBarColor();
-            InitializeMusicPlayer();
-            LoadClickSound();
-            AttachClickEvents(this);
-            InitializeTimers();
-            InitializeBitmap();
+            SetTitleBarColor(); ReduceFontSizeByScale(this, ref scaling_factor);
+            InitializeMusicPlayer(); InitializeClickSound(); AttachClickEvents(this);
+            InitializeTimers(); InitializeGraphics();
+            InitializeCombo(); InitializeData();
+            SetThicknessDensenessScopesBorders();
             BanMouseWheel();
         }
-        private void Graph_Load(object sender, EventArgs e)
-        {
-            InitializeCombo();
-            InitializeData();
-            SetTDSB();
-            ReduceFontSizeByScale(this);
-            TextBoxFocus(sender, e);
-        }
+        private void Graph_Load(object sender, EventArgs e) => TextBoxFocus(sender, e);
         private void Graph_Paint(object sender, PaintEventArgs e)
-        {
-            if (clicked) return;
-            SetBackdrop(e);
-            DefaultReference(true);
-        }
+        { if (!bdp_painted && !clicked) SubtitleBox_DoubleClick(sender, e); }
+        //
         private int SetTitleBarColor()
         {
-            // Set window attribute for title bar color
-            int attribute = DWMWA_USE_IMMERSIVE_DARK_MODE;
-            int value = 1;  // Set to 1 to apply immersive color mode
-            return DwmSetWindowAttribute(Handle, attribute, ref value, sizeof(int));
+            int mode = 1;  // Set to 1 to apply immersive color mode
+            const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20; // Desktop Window Manager (DWM)
+            return DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref mode, sizeof(Int32));
         }
-        private void InitializeMusicPlayer()
+        public static void ReduceFontSizeByScale(Control parentCtrl, ref float scalingFactor)
         {
-            _player = new WindowsMediaPlayer();
-            Assembly assembly = Assembly.GetExecutingAssembly();
-            Stream soundStream = assembly.GetManifestResourceStream("FunctionGrapher2._0.calm-zimpzon-main-version-07-55-10844.wav");
-            if (soundStream != null)
+            scalingFactor = Graphics.FromHwnd(IntPtr.Zero).DpiX / 96f / 1.5f; // Originally my PC was scaled to 150%
+            foreach (Control ctrl in parentCtrl.Controls)
             {
-                // Save the stream to a temporary file, since Windows Media Player cannot play directly from the stream
-                string tempFile = Path.Combine(Path.GetTempPath(), "background_music.wav");
-                using (FileStream fileStream = new(tempFile, FileMode.Create, FileAccess.Write)) // This is extremely sensitive
-                    soundStream.CopyTo(fileStream);
-                // Set the media file
-                _player.URL = tempFile;
-                _player.settings.setMode("loop", true); // Loop the music
-                _player.controls.stop();
+                ctrl.Font = new(ctrl.Font.FontFamily, ctrl.Font.Size / scalingFactor, ctrl.Font.Style);
+                if (ctrl.Controls.Count > 0) ReduceFontSizeByScale(ctrl, ref scalingFactor);
             }
-            else MessageBox.Show("Error: Could not find embedded resource for music.");
-        }
-        private void PlayOrPause()
+        } // Also used for Message Boxes, so scalingFactor should not be passed as a field
+        private static Stream? GetStream(string file)
+            => Assembly.GetExecutingAssembly().GetManifestResourceStream($"{typeof(Program).Namespace}.{file}.wav");
+        private static void InitializeMusicClick(Stream? stream, string message, Action<Stream> setUpStream)
+        { if (stream != null) setUpStream(stream); else GetMusicClickErrorBox(message); }
+        private void InitializeMusicPlayer() => InitializeMusicClick(GetStream("bgm"), MUSIC, soundStream =>
         {
-            if (!_isPaused)
-            {
-                _currentPosition = _player.controls.currentPosition;
-                _player.controls.pause();
-                ColorTimer.Stop();
-                TitleLabel.ForeColor = Color.White;
-            }
-            else
-            {
-                _player.controls.currentPosition = _currentPosition;
-                _player.controls.play();
-                ColorTimer.Start();
-                timeElapsed = 0;
-            }
-            _isPaused = !_isPaused;
-        }
-        private static void LoadClickSound()
+            MediaPlayer = new();
+            // Saving the stream to a temp file, since Windows Media Player cannot play directly from the stream
+            string tempFile = Path.Combine(Path.GetTempPath(), $"{TEMP_BGM_NAME}.wav");
+            using FileStream fileStream = new(tempFile, FileMode.Create, FileAccess.Write); // "using" should not be removed
+            soundStream.CopyTo(fileStream);
+            MediaPlayer.URL = tempFile; // Setting the media file
+            MediaPlayer.settings.setMode("loop", true); // Looping the music
+            MediaPlayer.controls.stop();
+        });
+        private static void InitializeClickSound() => InitializeMusicClick(GetStream("click"), SOUND, soundStream =>
+        { ClickPlayer = new(soundStream); });
+        private static void AttachClickEvents(Control ctrl)
         {
-            Assembly assembly = Assembly.GetExecutingAssembly();
-            Stream soundStream = assembly.GetManifestResourceStream("FunctionGrapher2._0.bubble-sound-43207_[cut_0sec].wav");
-            if (soundStream != null) _clickSoundPlayer = new SoundPlayer(soundStream);
-            else MessageBox.Show("Error: Could not find embedded resource for click sound.");
+            ctrl.Click += (sender, e) => ClickPlayer?.Play();
+            foreach (Control childCtrl in ctrl.Controls) AttachClickEvents(childCtrl);
         }
-        private void AttachClickEvents(Control control)
-        {
-            control.Click += Control_Click;
-            foreach (Control childControl in control.Controls) AttachClickEvents(childControl);
-        }
-        private void Control_Click(object sender, EventArgs e)
-            => _clickSoundPlayer?.Play();
         private void InitializeTimers()
         {
-            GraphTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-            ColorTimer = new System.Windows.Forms.Timer { Interval = 50 };
-            ColorTimer.Tick += ColorTimer_Tick;
-            WaitTimer = new System.Windows.Forms.Timer { Interval = 500 };
-            WaitTimer.Tick += WaitTimer_Tick;
-            DisplayTimer = new System.Windows.Forms.Timer { Interval = 500 };
-            DisplayTimer.Tick += DisplayTimer_Tick;
-            timeElapsed = 0;
+            static System.Windows.Forms.Timer setT(int interval) => new() { Interval = interval };
+            GraphTimer = setT(1000); ColorTimer = setT(50); WaitTimer = setT(500); DisplayTimer = setT(1000 / UPDATE);
+
+            ColorTimer.Tick += (sender, e) =>
+            {
+                title_elapsed += TITLE;
+                TitleLabel.ForeColor = ObtainColorWheelCurve(title_elapsed % 1);
+            };
+            WaitTimer.Tick += (sender, e) =>
+            {
+                ReverseBool(ref is_flashing); // Cannnot pass properties as reference
+                PictureWait.Visible = is_flashing;
+            };
+            DisplayTimer.Tick += (sender, e) =>
+            {
+                if (++display_elapsed % UPDATE == 0) SetText(TimeDisplay, (display_elapsed / UPDATE).ToString() + "s");
+                SetText(PointNumDisplay, (pixel_number + segment_number).ToString()); // Refreshing $"{RATE}" times per second
+            };
         }
-        private void DisplayTimer_Tick(object sender, EventArgs e)
+        private void InitializeGraphics()
         {
-            if (++elapsedSeconds % 2 == 0) TimeDisplay.Text = (elapsedSeconds / 2).ToString() + "s";
-            PointNumDisplay.Text = (point_number + times).ToString();
+            graphics = CreateGraphics();
+            bmp_mac = bmp_mic = new(Width, Height, PixelFormat.Format32bppArgb);
+            bmp_screen = new(Width - WIDTH_IND, Height - HEIGHT_IND);
+
+            rectangle = new(0, 0, Width, Height);
+            int indent = (int)(CURVE_WIDTH_LIMIT / 2), _indent = indent * 2,
+                widthMac = X_RIGHT_MAC - X_LEFT_MAC, heightMac = Y_DOWN_MAC - Y_UP_MAC,
+                widthMic = X_RIGHT_MIC - X_LEFT_MIC, heightMic = Y_DOWN_MIC - Y_UP_MIC;
+            rect_mac = new(X_LEFT_MAC - indent, Y_UP_MAC - indent, widthMac + _indent, heightMac + _indent);
+            rect_mic = new(X_LEFT_MIC - indent, Y_UP_MIC - indent, widthMic + _indent, heightMic + _indent);
+
+            DoubleBuffered = KeyPreview = true; // Essential for shortcuts
         }
-        private void WaitTimer_Tick(object sender, EventArgs e)
+        private void InitializeCombo()
         {
-            waiting = !waiting;
-            if (!commence_waiting) return;
-            PictureWait.Visible = waiting;
+            static void coloringContour_AddItem(ComboBox cbx, int index, string[] options)
+            { cbx.Items.AddRange(options); cbx.SelectedIndex = index; }
+            coloringContour_AddItem(ComboColoring, 4, COLOR_MODES);
+            coloringContour_AddItem(ComboContour, 1, CONTOUR_MODES);
+
+            void addExamples(string[] items) { foreach (string item in items) ComboExamples.Items.Add(item); }
+            addExamples(ReplaceTags.EX_COMPLEX);
+            ComboExamples.Items.Add(String.Empty);
+            addExamples(ReplaceTags.EX_REAL);
+            ComboExamples.Items.Add(String.Empty);
+            addExamples(ReplaceTags.EX_CURVES);
+
+            void functionsSpecial_AddItem(string[] options, bool isFunc)
+            {
+                string[] modifiedOptions = new string[options.Length]; int index = 0;
+                foreach (string option in options) modifiedOptions[index++] = String.Concat(option, RecoverMultiply.LR_BRA);
+                Action<string[]> addOptions = isFunc ? ComboFunctions.Items.AddRange : ComboSpecial.Items.AddRange;
+                addOptions(modifiedOptions);
+            }
+            functionsSpecial_AddItem(ReplaceTags.FUNCTIONS, true);
+            functionsSpecial_AddItem(ReplaceTags.SPECIALS, false);
         }
-        private void ColorTimer_Tick(object sender, EventArgs e)
+        private void RecoverInput()
         {
-            timeElapsed += 0.01;
-            TitleLabel.ForeColor = ObtainWheelCurve(timeElapsed % 1);
+            SetText(InputString, INPUT_DEFAULT); SetText(AddressInput, ADDRESS_DEFAULT);
+            SetText(GeneralInput, GENERAL_DEFAULT);
+            SetText(ThickInput, THICK_DEFAULT); SetText(DenseInput, DENSE_DEFAULT);
+            InputString_Focus();
         }
-        private void InitializeBitmap()
+        private void InitializeData() { RecoverInput(); SetText(DraftBox, DRAFT_DEFAULT); SetText(CaptionBox, CAPTION_DEFAULT); }
+        private void SetThicknessDensenessScopesBorders(bool autoFill = true)
         {
-            bitmap = new(Width, Height, PixelFormat.Format32bppArgb);
-            rect = new(0, 0, Width, Height);
-            DoubleBuffered = true;
-            KeyPreview = true; // This is essential for shortcuts
+            FillEmpty(GeneralInput, GENERAL_DEFAULT);
+            FillEmpty(ThickInput, THICK_DEFAULT); FillEmpty(DenseInput, DENSE_DEFAULT);
+
+            TextBox[] tbxDetails = { X_Left, X_Right, Y_Right, Y_Left }; // Crucial ordering
+            if (autoFill) foreach (var tbx in tbxDetails) FillEmpty(tbx, ZERO);
+
+            double _dense = Obtain(DenseInput), _thick = Obtain(ThickInput);
+            stride_real = STRIDE_REAL / _dense; stride = STRIDE / _dense;
+            mod_stride = MOD / _dense; arg_stride = ARG / _dense;
+            epsilon = (is_complex ? EPS_COMPLEX : EPS_REAL) * _thick; // For lines and complex extremities
+            size_real = SIZE_REAL * _thick / (1 + _thick); // For real extremities
+            decay = DECAY * _thick;
+
+            int i = 0;
+            if (!GeneralInput_Undo())
+            {
+                double _scope = Obtain(GeneralInput);
+                scopes = new double[] { -_scope, _scope, _scope, -_scope }; // Remind the signs
+                foreach (var tbx in tbxDetails) SetText(tbxDetails[i], scopes[i++].ToString("#0.0000"));
+            }
+            else foreach (var tbx in tbxDetails) scopes[i] = RealSub.Obtain(RecoverMultiply.Beautify(tbxDetails[i++].Text, false));
+            if (InvalidScopesX() || InvalidScopesY()) MyString.ThrowException(); // The detailed exception is determined later
+
+            borders = new int[] { x_left, x_right, y_up, y_down };
         }
         private void BanMouseWheel()
         {
-            ComboExamples.MouseWheel += ComboBox_MouseWheel;
-            ComboFunctions.MouseWheel += ComboBox_MouseWheel;
-            ComboSpecial.MouseWheel += ComboBox_MouseWheel;
-            ComboColoring.MouseWheel += ComboBox_MouseWheel;
-            ComboContour.MouseWheel += ComboBox_MouseWheel;
-        }
-        private void ComboBox_MouseWheel(object sender, MouseEventArgs e)
-            => ((HandledMouseEventArgs)e).Handled = true;
-        private void InitializeCombo()
-        {
-            Construct_Examples();
-            ComboColoring_AddItem();
-            ComboContour_AddItem();
-            ComboExamples_AddItem();
-            ComboFunctions_AddItem();
-            ComboSpecial_AddItem();
-        }
-        private static void Construct_Examples()
-        {
-            ExampleString = new string[]
-            {
-                "F(1-10i,0.5i,i,zzzzz,100)",
-                "z^(1+10i)cos((z-1)/(z^13+z+1))",
-                "sum(-1+1/(1-z^n),n,1,100)",
-                "prod(exp(1+2/(ze(-k/5)-1)),k,1,5)",
-                "iterate((Z+1/Z)e(0.02),z,k,1,1000)",
-                "iterate(exp(z^Z),z,k,1,100)",
-                "iterateLoop(ZZ+z,0,k,1,100)",
-                "comp(zz,sin(zZ),cos(z/Z))",
-                "cos(xy)-cos(x)-cos(y)",
-                "min(sin(xy),tan(x),tan(y))",
-                "xround(y)-yround(x)",
-                "y-x|IterateLoop(x^X,x,k,1,30,y-X)",
-                "iterate1(kx/X+X/(y+k),sin(x+y),k,1,3)",
-                "iterate2(k/X+k/Y,XY,sin(x+y),cos(x-y),k,1,10,2)",
-                "comp1(xy,tan(X+x),Arth(X-y))",
-                "comp2(xy,xx+yy,sin(X+Y),cos(X-Y),2)",
-                "func(ga(x,100),0.0001)",
-                "func(sum(sin(2^kx)/2^k,k,0,100),-pi,pi,0.001)",
-                "func(beta(sinh(x),cosh(x),100),-2,2,0.00001)",
-                "polar(sqrt(cos(2theta)),theta,0,2pi,0.0001)",
-                "polar(cos(5k)cos(7k),k,0,2pi,0.001)",
-                "loop(polar(0.1jcos(5k+0.7jpi),k,0,pi),j,1,10)",
-                "param(cos(17k),cos(19k),k,0,pi,0.0001)",
-                "loop(param(cos(m)^k,sin(m)^k,m,0,p/2),k,1,10)"
-            };
-        }
-        private void ComboColoring_AddItem()
-        {
-            string[] coloringOptions = { "Commonplace", "Monochromatic", "Bichromatic", "Kaleidoscopic", "Miscellaneous" };
-            ComboColoring.Items.AddRange(coloringOptions);
-            ComboColoring.SelectedIndex = 4;
-        }
-        private void ComboContour_AddItem()
-        {
-            string[] contourOptions = { "Cartesian (x,y)", "Polar (r,θ)" };
-            ComboContour.Items.AddRange(contourOptions);
-            ComboContour.SelectedIndex = 1;
-        }
-        private void ComboExamples_AddItem()
-        {
-            for (int i = 0; i < 8; i++) ComboExamples.Items.Add(ExampleString[i]);
-            ComboExamples.Items.Add(String.Empty);
-            for (int i = 8; i < 16; i++) ComboExamples.Items.Add(ExampleString[i]);
-            ComboExamples.Items.Add(String.Empty);
-            for (int i = 16; i < 24; i++) ComboExamples.Items.Add(ExampleString[i]);
-        }
-        private void ComboFunctions_AddItem()
-        {
-            string[] functionOptions = { "floor()", "ceil()", "round()", "sgn()", "F()", "gamma()", "beta()", "zeta()", "mod()", "nCr()", "nPr()", "max()", "min()", "log()", "exp()", "sqrt()", "abs()", "factorial()", "arsinh()", "arcosh()", "artanh()", "arcsin()", "arccos()", "arctan()", "sinh()", "cosh()", "tanh()", "sin()", "cos()", "tan()", "conjugate()", "e()" };
-            ComboFunctions.Items.AddRange(functionOptions);
-        }
-        private void ComboSpecial_AddItem()
-        {
-            string[] specialOptions = { "product()", "sum()", "iterate1()", "iterate2()", "composite1()", "composite2()", "iterateLoop()", "loop()", "iterate()", "composite()", "func()", "polar()", "param()" };
-            ComboSpecial.Items.AddRange(specialOptions);
-        }
-        private void InitializeData()
-        {
-            InputString.Text = INPUT_DEFAULT;
-            InputString.SelectionStart = InputString.Text.Length;
-            DraftBox.Text = DRAFT_DEFAULT;
-            CaptionBox.Text = CAPTION_DEFAULT;
-            GeneralInput.Text = GENERAL_DEFAULT;
-            ThickInput.Text = THICKNESS_DEFAULT;
-            DenseInput.Text = DENSENESS_DEFAULT;
-            AddressInput.Text = ADDRESS_DEFAULT;
-            PictureIncorrect.Visible = false;
-            PictureCorrect.Visible = true;
-        }
-        private void SetThicknessDenseness()
-        {
-            epsilon = EPSILON; steps = STEPS; deviation = DEVIATION;
-            if (String.IsNullOrEmpty(ThickInput.Text)) ThickInput.Text = THICKNESS_DEFAULT;
-            if (String.IsNullOrEmpty(DenseInput.Text)) DenseInput.Text = DENSENESS_DEFAULT;
-            raw_thickness = RealSub.Obtain(ThickInput.Text);
-            double temp = RealSub.Obtain(DenseInput.Text);
-            epsilon = complex_mode ? EPSILON * EPS_DIFF_COMPLEX * raw_thickness : EPSILON * EPS_DIFF_REAL * raw_thickness;
-            steps = STEPS / temp; deviation = DEVIATION / temp;
-            decay_rate = 0.2 * raw_thickness;
-            size_for_extremities = 0.5 * raw_thickness / (1 + raw_thickness);
-        }
-        private void SetScopesBorders()
-        {
-            if (String.IsNullOrEmpty(GeneralInput.Text)) GeneralInput.Text = GENERAL_DEFAULT;
-            if (GeneralInput.Text != "0")
-            {
-                double temp_scope = RealSub.Obtain(GeneralInput.Text);
-                scopes = new double[] { -temp_scope, temp_scope, temp_scope, -temp_scope };
-                X_Left.Text = Y_Left.Text = (-temp_scope).ToString("#0.0000");
-                X_Right.Text = Y_Right.Text = temp_scope.ToString("#0.0000");
-            }
-            else
-            {
-                if (String.IsNullOrEmpty(X_Left.Text)) X_Left.Text = "0";
-                if (String.IsNullOrEmpty(X_Right.Text)) X_Right.Text = "0";
-                if (String.IsNullOrEmpty(Y_Left.Text)) Y_Left.Text = "0";
-                if (String.IsNullOrEmpty(Y_Right.Text)) Y_Right.Text = "0";
-                scopes[0] = RealSub.Obtain(X_Left.Text);
-                scopes[1] = RealSub.Obtain(X_Right.Text);
-                scopes[2] = RealSub.Obtain(Y_Right.Text);
-                scopes[3] = RealSub.Obtain(Y_Left.Text);
-            }
-            borders = new int[] { x_left, x_right, y_up, y_down };
-        }
-        private void SetTDSB() { SetThicknessDenseness(); SetScopesBorders(); }
-        private static void ReduceFontSizeByScale(Control parent)
-        {
-            ScalingFactor = Graphics.FromHwnd(IntPtr.Zero).DpiX / 96f / 1.5f;
-            foreach (Control ctrl in parent.Controls)
-            {
-                ctrl.Font = new Font(ctrl.Font.FontFamily, ctrl.Font.Size / ScalingFactor, ctrl.Font.Style);
-                if (ctrl.Controls.Count > 0) ReduceFontSizeByScale(ctrl);
-            }
-        }
+            ComboBox[] comboBoxes = { ComboExamples, ComboFunctions, ComboSpecial, ComboColoring, ComboContour };
+            foreach (var cbx in comboBoxes) cbx.MouseWheel += (sender, e) => ((HandledMouseEventArgs)e).Handled = true;
+        } // The default wheeling clashes with the personalized combo boxes
         private void TextBoxFocus(object sender, EventArgs e)
         {
-            foreach (Control control in Controls.OfType<TextBox>())
-                control.GotFocus += (sender, e) => { ((TextBox)sender).SelectionStart = ((TextBox)sender).Text.Length; };
-        }
-        private static void SetBackdrop(PaintEventArgs e)
+            foreach (var ctrl in Controls.OfType<TextBox>())
+                ctrl.GotFocus += (sender, e) => { ((TextBox)sender).SelectionStart = ((TextBox)sender).Text.Length; };
+        } // Forcing the caret to appear at the end of each textbox
+        #endregion
+
+        #region External Methods
+        [DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool BlockInput([MarshalAs(UnmanagedType.Bool)] bool fBlockIt);
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern bool HideCaret(IntPtr hWnd); // Also used for Message Boxes
+        protected override void WndProc(ref Message m) // Window Procedure
         {
-            DrawBackdrop(e.Graphics, new(Color.Gray, 1), 
-                X_LEFT_MIC, Y_UP_MIC, X_RIGHT_MIC, Y_DOWN_MIC, new SolidBrush(Color.Black));
-            DrawBackdrop(e.Graphics, new(Color.Gray, 1), 
-                X_LEFT_MAC, Y_UP_MAC, X_RIGHT_MAC, Y_DOWN_MAC, new SolidBrush(Color.Black));
-        }
-        private static void DrawBackdrop(Graphics g, Pen pen, int xLeft, int yUp, int xRight, int yDown, Brush backBrush)
+            const int WM_NCLBTNDOWN = 0x00A1; // Window Message, Non-Client Left Button Down
+            const int HTCAPTION = 0x0002; // Hit Test Caption
+            if (m.Msg == WM_NCLBTNDOWN && m.WParam.ToInt32() == HTCAPTION) return; // Preventing dragging the title bar
+            base.WndProc(ref m);
+        } // Overriding WndProc to customize window behavior
+        #endregion
+
+        #region Shorthands
+        private static int AddOne(int input) => input + 1;
+        private static Color Swap(Color c1, Color c2) => swap_colors ? c1 : c2;
+        private static Color Argb(int a, int r, int g, int b) => Color.FromArgb(a, r, g, b);
+        public static Color Argb(int r, int g, int b) => Color.FromArgb(r, g, b); // Also used for Message Boxes
+        public static double ArgRGB(double x, double y) => Double.IsNaN(x) && Double.IsNaN(y) ? -1 :
+            y == 0 ? (x == 0 ? -1 : x > 0 ? 0 : Math.PI) : (y > 0 ? Math.Atan2(y, x) : Math.Atan2(y, x) + Math.Tau); // Sensitive checking
+        private static int Frac(int input, double alpha) => (int)(input * alpha);
+        private static bool IllegalRatio(double ratio) => ratio < 0 || ratio > 1;
+        private static int GetRow(int[] borders) => borders[1] - borders[0];
+        private static int GetColumn(int[] borders) => borders[3] - borders[2];
+        private static double Get_Row() => scopes[1] - scopes[0];
+        private static double Get_Column() => scopes[3] - scopes[2]; // The sign convention varies from place to place
+        private static bool InvalidScopesX() => scopes[0] >= scopes[1];
+        private static bool InvalidScopesY() => scopes[3] >= scopes[2];
+        private static int[] GetBorders(int mode) => mode switch
         {
-            g.DrawLine(pen, xLeft, yUp, xRight, yUp);
-            g.DrawLine(pen, xRight, yUp, xRight, yDown);
-            g.DrawLine(pen, xRight, yDown, xLeft, yDown);
-            g.DrawLine(pen, xLeft, yDown, xLeft, yUp);
-            g.FillRectangle(backBrush, xLeft + 1, yUp + 1, xRight - xLeft - 1, yDown - yUp - 1);
+            1 => new int[] { X_LEFT_MAC, X_RIGHT_MAC, Y_UP_MAC, Y_DOWN_MAC },
+            2 => new int[] { X_LEFT_MIC, X_RIGHT_MIC, Y_UP_MIC, Y_DOWN_MIC },
+            3 => new int[] { X_LEFT_CHECK, X_RIGHT_CHECK, Y_UP_CHECK, Y_DOWN_CHECK }
+        };
+        private static Rectangle GetRect(int[] borders, int margin = 0)
+            => new(borders[0] + margin, borders[2] + margin, GetRow(borders) - margin, GetColumn(borders) - margin);
+        private static Bitmap GetBitmap(bool isMain) => isMain ? bmp_mac : bmp_mic;
+        private static ref bool ReturnAxesDrawn(bool isMain) => ref (isMain ? ref axes_drawn_mac : ref axes_drawn_mic);
+        private static void SetAxesDrawn(bool isMain, bool drawn) { ReturnAxesDrawn(isMain) = drawn; }
+        private static void ReverseBool(ref bool isChecked) => isChecked = !isChecked;
+        private static double Obtain(TextBox tbx) => RealSub.Obtain(tbx.Text);
+        private static void SetText(TextBox tbx, string text) => tbx.Text = text;
+        private static void FillEmpty(TextBox tbx, string text) { if (String.IsNullOrEmpty(tbx.Text)) SetText(tbx, text); }
+        private void AddDraft(string text) => SetText(DraftBox, text + DraftBox.Text);
+        private void SetScrollBars(bool enabled) => VScrollBarX.Enabled = VScrollBarY.Enabled = enabled;
+        private bool GeneralInput_Undo() => GeneralInput.Text == ZERO;
+        private void ComboExamples_Undo() => ComboExamples.SelectedIndex = -1;
+        private void InputString_Focus() { InputString.Focus(); InputString.SelectionStart = InputString.Text.Length; }
+        private bool NoInput() => String.IsNullOrEmpty(InputString.Text);
+        private bool ProcessingGraphics() => InputString.ReadOnly;
+        #endregion
+
+        #region Auxiliary Drawings
+        private static void DrawBackdrop(int[] borders)
+        { graphics.DrawRectangle(BDR_PEN, GetRect(borders)); graphics.FillRectangle(BACK_BRUSH, GetRect(borders, 1)); }
+        private static void DrawAxesGrids(int[] borders)
+        {
+            bdp_painted = true; // To prevent calling Graph_Paint afterwards
+            static double calculateGrid(double range) => Math.Pow(GRID, Math.Floor(Math.Log(range / 2) / Math.Log(GRID)));
+            double xGrid = calculateGrid(Get_Row()), yGrid = calculateGrid(-Get_Column()); // Remind the minus sign
+
+            void drawGrids(double xGrid, double yGrid, float penWidth)
+            {
+                Pen gridPen = new(GRID_GRAY, penWidth); int pos;
+                MyString.For((int)Math.Floor(scopes[3] / yGrid), (int)Math.Ceiling(scopes[2] / yGrid), i =>
+                {
+                    pos = LinearTransform(0, i * yGrid, borders).y;
+                    if (pos > borders[2] && pos < borders[3]) graphics.DrawLine(gridPen, AddOne(borders[0]), pos, borders[1], pos);
+                });
+                MyString.For((int)Math.Floor(scopes[0] / xGrid), (int)Math.Ceiling(scopes[1] / xGrid), i =>
+                {
+                    pos = LinearTransform(i * xGrid, 0, borders).x;
+                    if (pos > borders[0] && pos < borders[1]) graphics.DrawLine(gridPen, pos, borders[3], pos, AddOne(borders[2]));
+                });
+            }
+            drawGrids(xGrid, yGrid, GRID_WIDTH_1); drawGrids(xGrid / GRID, yGrid / GRID, GRID_WIDTH_2);
+
+            var (x, y) = LinearTransform(0.0, 0.0, borders);
+            if (y > borders[2] && y < borders[3]) graphics.DrawLine(AXES_PEN, AddOne(borders[0]), y, borders[1], y);
+            if (x > borders[0] && x < borders[1]) graphics.DrawLine(AXES_PEN, x, borders[3], x, AddOne(borders[2]));
+        }
+        private static void DrawBackdropAxesGrids(int[] borders, bool isMain, bool isFreezed = false)
+        {
+            if (!isFreezed) { DrawBackdrop(borders); SetAxesDrawn(isMain, false); }
+            if (!delete_coor && !ReturnAxesDrawn(isMain)) { DrawAxesGrids(borders); SetAxesDrawn(isMain, true); }
+        } // Sensitive
+        private void DrawReferenceRectangles(Color color)
+            => graphics.FillRectangle(new SolidBrush(color), VScrollBarX.Location.X - REF_POS_1, Y_UP_MIC + REF_POS_2,
+                2 * (VScrollBarX.Width + REF_POS_1), VScrollBarX.Height - 2 * REF_POS_2);
+        private void DrawScrollBar((double, double) xyCoor)
+        {
+            int range = VScrollBarX.Maximum - VScrollBarX.Minimum;
+            VScrollBarX.Value = Frac(range, (xyCoor.Item1 - scopes[0]) / Get_Row());
+            VScrollBarY.Value = Frac(range, (xyCoor.Item2 - scopes[3]) / -Get_Column()); // Remind the minus sign
         }
         #endregion
 
-        #region Pre-Graphing
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static int[] Transform(double x, double y, double[] scopes, int[] borders)
+        // 2.GRAPHING
+        #region Numerics
+        private static (double, double) GetRatio(int[] borders) => (Get_Row() / GetRow(borders), Get_Column() / GetColumn(borders));
+        private static (int x, int y) LinearTransform(double x, double y, int[] borders)
         {
-            double _x = (borders[1] - borders[0]) / (scopes[1] - scopes[0]);
-            double _y = (borders[3] - borders[2]) / (scopes[3] - scopes[2]);
-            return new int[] { (int)(borders[0] + (x - scopes[0]) * _x), (int)(borders[2] + (y - scopes[2]) * _y) };
+            double _x = GetRow(borders) / Get_Row(), _y = GetColumn(borders) / Get_Column();
+            return ((int)(borders[0] + (x - scopes[0]) * _x), (int)(borders[2] + (y - scopes[2]) * _y));
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static double[] InverseTransform(int a, int b, double[] scopes, int[] borders)
-        {
-            double _x = (scopes[1] - scopes[0]) / (borders[1] - borders[0]);
-            double _y = (scopes[3] - scopes[2]) / (borders[3] - borders[2]);
-            return new double[] { scopes[0] + (a - borders[0]) * _x, scopes[2] + (b - borders[2]) * _y };
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static (double, double) LinearTransform(int x, int y, int[] borders) => LinearTransform(x, y, GetRatio(borders), borders);
+        private static (double, double) LinearTransform(int x, int y, (double, double) _xy, int[] borders)
+            => (scopes[0] + (x - borders[0]) * _xy.Item1, scopes[2] + (y - borders[2]) * _xy.Item2); // For optimization
+        private static int LowerIndex(double a, double m) => (int)Math.Floor(a / m);
         private static double LowerDistance(double a, double m) => a - m * LowerIndex(a, m);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static int LowerIndex(double a, double m) => a >= 0 ? (int)(a / m) : (int)((a / m) + (int)(-a / m) + 1) - (int)(-a / m) - 1;
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static double LowerRatio(double a, double m) => a == -0 ? 1 : (a - m * LowerIndex(a, m)) / m;
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe static double[] FiniteExtremities(DoubleMatrix output, int row, int column)
+        private static double LowerRatio(double a, double m) => a == -0 ? 1 : LowerDistance(a, m) / m; // -0 is necessary
+        private static double GetShade(double alpha) => (alpha - 1) / DEPTH + 1;
+        private unsafe static (double, double) FiniteExtremities(RealMatrix output, int row, int column)
         {
-            double min = Double.NaN, max = Double.NaN;
-            int size = row * column; double* outPtr = output.Ptr();
-            for (int i = 0; i < size; i++, outPtr++) // Should not use parallel
+            static double seekM(Func<double, double, double> function, double* ptr, int length)
             {
-                if (Double.IsNaN(*outPtr)) continue;
-                double atanValue = Math.Atan(*outPtr);
-                if (Double.IsNaN(min)) min = max = atanValue; // This is necessitous
-                else
-                {
-                    max = Math.Max(atanValue, max);
-                    min = Math.Min(atanValue, min);
-                }
+                double val = Double.NaN;
+                for (int i = 0; i < length; i++, ptr++)
+                { if (Double.IsNaN(*ptr)) continue; if (Double.IsNaN(val)) val = *ptr; else val = function(*ptr, val); }
+                return val;
             }
-            return new double[] { min, max };
-        }
-        private void RealComputation(int row, int column)
+            RealMatrix outputAtan = new(row, column), minMax = new(2, row); // outputAtan is necessary
+            Parallel.For(0, row, r =>
+            {
+                double* destPtr = outputAtan.RowPtr(r), srcPtr = output.RowPtr(r);
+                for (int c = 0; c < column; c++, destPtr++, srcPtr++) *destPtr = Math.Atan(*srcPtr);
+                minMax[0, r] = seekM(Math.Min, outputAtan.RowPtr(r), column);
+                minMax[1, r] = seekM(Math.Max, outputAtan.RowPtr(r), column);
+            });
+            return (seekM(Math.Min, minMax.RowPtr(0), row), seekM(Math.Max, minMax.RowPtr(1), row));
+        } // To find the min and max of the atan'ed matrix to prevent infinitude
+        private unsafe static (int, int, RealMatrix, RealMatrix) GetRowColumnCoor()
         {
-            switch (color_mode)
-            {
-                case 1: Real1(Output_table, row, column); break;
-                case 2: Real2(Output_table, row, column); break;
-                case 3: Real3(Output_table, row, column); break;
-                case 4: Real4(Output_table, row, column); break;
-                case 5: Real5(Output_table, row, column); break;
-            }
+            var (row, column) = (GetRow(borders), GetColumn(borders));
+            RealMatrix xCoor = new(row, column), yCoor = new(row, column);
+            int xLeft = AddOne(borders[0]), yUp = AddOne(borders[2]); var _xy = GetRatio(borders);
+            Parallel.For(0, row, i => {
+                double* xPtr = xCoor.RowPtr(i), yPtr = yCoor.RowPtr(i); int _xLeft = i + xLeft, _yUp = yUp; // Must NOT be pre-defined
+                for (int j = 0; j < column; j++, _yUp++, xPtr++, yPtr++) (*xPtr, *yPtr) = LinearTransform(_xLeft, _yUp, _xy, borders);
+            });
+            return (row, column, xCoor, yCoor);
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe void RealSpecial(int i, int j, DoubleMatrix output, int _row, int _column, double[] MinMax, byte* ptr, int stride, Color zeroColor, Color poleColor)
+        #endregion
+
+        #region Rendering Core
+        private static BitmapData GetBmpData(Bitmap bmp)
+            => bmp.LockBits(rectangle, ImageLockMode.ReadWrite, bmp.PixelFormat);
+        private unsafe static void ClearBitmap(Bitmap bmp)
+        {
+            int bpp = Image.GetPixelFormatSize(bmp.PixelFormat) / 8, width = rectangle.Width * bpp; // bpp: bytesPerPixel
+            BitmapData data = GetBmpData(bmp); var ptr = (byte*)data.Scan0;
+            Parallel.For(0, rectangle.Height, y => {
+                byte* rowPtr = ptr + y * data.Stride + 3; // It suffices to set color.A to zero
+                for (int x = 0; x < width; x += bpp, rowPtr += bpp) *rowPtr = 0;
+            });
+            bmp.UnlockBits(data);
+        }
+        private unsafe void SetPixelFast(int x, int y, byte* ptr, int stride, Color color)
+        {
+            pixel_number++;
+            byte* _ptr = ptr + y * stride + x * 4;  // Assuming 32bpp (ARGB format)
+            *_ptr = color.B; _ptr++; *_ptr = color.G; _ptr++; *_ptr = color.R; _ptr++; *_ptr = color.A;
+        }
+        private unsafe void RealSpecial(int i, int j, byte* ptr, int stride, Color _zero, Color _pole, double val, (double, double) mM)
         {
             if (delete_point) return;
-            double value = Math.Atan(output[_row, _column]);
-            if (value < (1 - size_for_extremities) * MinMax[0] + size_for_extremities * MinMax[1])
-                SetPixelFast(i, j, ptr, stride, zeroColor);
-            if (value > (1 - size_for_extremities) * MinMax[1] + size_for_extremities * MinMax[0])
-                SetPixelFast(i, j, ptr, stride, poleColor);
+            static double convexCombination(double x, double y) => x - size_real * (x - y);
+            if (val < convexCombination(mM.Item1, mM.Item2)) SetPixelFast(i, j, ptr, stride, _zero);
+            if (val > convexCombination(mM.Item2, mM.Item1)) SetPixelFast(i, j, ptr, stride, _pole);
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe void ProcessReal(int i, int j, DoubleMatrix output, double[] MinMax, byte* ptr, int stride, Color zeroColor, Color poleColor, Func<double, Color> colorSelector)
+        private unsafe void ComplexSpecial(int i, int j, byte* ptr, int stride, Color _zero, Color _pole, double val)
         {
-            int _row = i - (x_left + 1), _column = j - (y_up + 1);
-            double value = output[_row, _column];
-            if (Double.IsNaN(value)) return;
-            Color pixelColor = colorSelector(value);
-            if (pixelColor != Color.Empty) SetPixelFast(i, j, ptr, stride, pixelColor);
-            RealSpecial(i, j, output, _row, _column, MinMax, ptr, stride, zeroColor, poleColor);
+            if (delete_point) return;
+            if (val < epsilon) SetPixelFast(i, j, ptr, stride, _zero);
+            else if (val > 1 / epsilon) SetPixelFast(i, j, ptr, stride, _pole);
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void RealLoop(DoubleMatrix output, int row, int column, Color zeroColor, Color poleColor, Func<double, Color> colorSelector)
+        private static void LoopBase(Action<int, int, int, int, int, IntPtr> loop)
         {
-            int xStart = x_left + 1, yStart = y_up + 1, xEnd = x_right, yEnd = y_down;
-            BitmapData bmpData = bitmap.LockBits(rect, ImageLockMode.ReadWrite, bitmap.PixelFormat);
-            byte* ptr = (byte*)bmpData.Scan0;
-            try
+            Bitmap bmp = GetBitmap(is_main); BitmapData data = GetBmpData(bmp);
+            int xStart = AddOne(borders[0]), yStart = AddOne(borders[2]), xEnd = borders[1], yEnd = borders[3];
+            try { for (int i = xStart; i < xEnd; i++) for (int j = yStart; j < yEnd; j++) loop(xStart, yStart, i, j, data.Stride, data.Scan0); }
+            finally { bmp.UnlockBits(data); }
+        }
+        //
+        private unsafe void RealLoop(RealMatrix output, Color _zero, Color _pole, Func<double, Color> etr, (double, double) mM)
+            => LoopBase((xStart, yStart, i, j, stride, ptr) =>
             {
-                double[] MinMax = FiniteExtremities(output, row, column);
-                for (int i = xStart; i < xEnd; i++) for (int j = yStart; j < yEnd; j++)
-                        ProcessReal(i, j, output, MinMax, ptr, bmpData.Stride, zeroColor, poleColor, colorSelector);
-            }
-            finally { bitmap.UnlockBits(bmpData); }
-        }
-        private void Real1(DoubleMatrix output, int row, int column)
-            => RealLoop(output, row, column, ZERO_BLUE, POLE_PURPLE, value =>
-        (Math.Abs(value) < epsilon) ? (swap_colors ? Color.Black : Color.White) : Color.Empty);
-        private void Real2(DoubleMatrix output, int row, int column)
-        {
-            Color trueColor = swap_colors ? Color.Black : Color.White;
-            Color falseColor = swap_colors ? Color.White : Color.Black;
-            RealLoop(output, row, column, ZERO_BLUE, POLE_PURPLE, value =>
-            value < 0 ? falseColor : (value > 0 ? trueColor : Color.Empty));
-        }
-        private void Real3(DoubleMatrix output, int row, int column)
-        {
-            Color trueColor = swap_colors ? LOWER_BLUE : UPPER_GOLD;
-            Color falseColor = swap_colors ? UPPER_GOLD : LOWER_BLUE;
-            RealLoop(output, row, column, Color.Black, Color.White, value =>
-            value < 0 ? falseColor : (value > 0 ? trueColor : Color.Empty));
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Real4(DoubleMatrix output, int row, int column)
-        {
-            int xStart = x_left + 1, yStart = y_up + 1, xEnd = x_right, yEnd = y_down;
-            BitmapData bmpData = bitmap.LockBits(rect, ImageLockMode.ReadWrite, bitmap.PixelFormat);
-            byte* ptr = (byte*)bmpData.Scan0;
-            try
-            {
-                double[] MinMax = FiniteExtremities(output, row, column);
-                for (int i = xStart; i < xEnd; i++)
+                double val = output[i - xStart, j - yStart]; var _ptr = (byte*)ptr;
+                if (!Double.IsNaN(val))
                 {
-                    for (int j = yStart, _row = i - xStart; j < yEnd; j++)
-                    {
-                        int _column = j - yStart;
-                        double value = output[_row, _column];
-                        if (Double.IsNaN(value)) continue;
-                        Color pixelColor = ObtainStrip(Math.Atan(value), MinMax[0], MinMax[1]);
-                        SetPixelFast(i, j, ptr, bmpData.Stride, pixelColor);
-                        RealSpecial(i, j, output, _row, _column, MinMax, ptr, bmpData.Stride, Color.Black, Color.White);
-                    }
+                    SetPixelFast(i, j, _ptr, stride, etr(val));
+                    RealSpecial(i, j, _ptr, stride, _zero, _pole, Math.Atan(val), mM);
                 }
-            }
-            finally { bitmap.UnlockBits(bmpData); }
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Real5(DoubleMatrix output, int row, int column)
-        {
-            int xStart = x_left + 1, yStart = y_up + 1, xEnd = x_right, yEnd = y_down;
-            BitmapData bmpData = bitmap.LockBits(rect, ImageLockMode.ReadWrite, bitmap.PixelFormat);
-            byte* ptr = (byte*)bmpData.Scan0;
-            try
+            });
+        private unsafe void ComplexLoop(ComplexMatrix output, Color _zero, Color _pole, Func<Complex, Color> etr)
+            => LoopBase((xStart, yStart, i, j, stride, ptr) =>
             {
-                double[] MinMax = FiniteExtremities(output, row, column);
-                for (int i = xStart; i < xEnd; i++)
+                Complex val = output[i - xStart, j - yStart]; var _ptr = (byte*)ptr;
+                if (!Double.IsNaN(val.real) && !Double.IsNaN(val.imaginary))
                 {
-                    for (int j = yStart, _row = i - xStart; j < yEnd; j++)
-                    {
-                        int _column = j - yStart;
-                        double value = output[_row, _column];
-                        if (Double.IsNaN(value)) continue;
-                        double alpha = Math.Clamp(LowerRatio(value, raw_thickness), 0, 1); // The clamp is necessary here
-                        Color pixelColor = ObtainStripAlpha(Math.Atan(value), (alpha - 1) / SHADE_DENSITY + 1, MinMax[0], MinMax[1]);
-                        SetPixelFast(i, j, ptr, bmpData.Stride, pixelColor);
-                        RealSpecial(i, j, output, _row, _column, MinMax, ptr, bmpData.Stride, Color.Black, Color.White);
-                    }
+                    SetPixelFast(i, j, _ptr, stride, etr(val));
+                    ComplexSpecial(i, j, _ptr, stride, _zero, _pole, Complex.Modulus(val));
                 }
-            }
-            finally { bitmap.UnlockBits(bmpData); }
+            });
+        private static Func<double, Color> GetColorReal123(int mode) => val =>
+        {
+            Color func23(Color c1, Color c2) => val < 0 ? Swap(c1, c2) : (val > 0 ? Swap(c2, c1) : Color.Empty);
+            return mode switch
+            {
+                1 => (Math.Abs(val) < epsilon) ? Swap(Color.Black, Color.White) : Color.Empty,
+                2 => func23(Color.White, Color.Black),
+                3 => func23(UPPER_GOLD, LOWER_BLUE)
+            };
+        };
+        private static Func<double, Color> GetColorReal45(bool mode, (double, double) mM) => val => mode ?
+            ObtainColorStrip(val, mM.Item1, mM.Item2) :
+            ObtainColorStrip(val, mM.Item1, mM.Item2, GetShade(LowerRatio(val, stride_real)));
+        private static Func<Complex, Color> GetColorComplex123(int mode, bool isReIm) => input =>
+        {
+            Complex val = isReIm ? input : Complex.Log(input); var (v1, v2) = (val.real, val.imaginary);
+            double s1 = isReIm ? stride : mod_stride, s2 = isReIm ? stride : arg_stride;
+            var (c1, c2) = mode switch
+            {
+                1 => (Color.White, Color.Black),
+                2 => (Color.Black, Color.White),
+                3 => (LOWER_BLUE, UPPER_GOLD)
+            };
+            bool draw = mode == 1 ? (Math.Min(LowerDistance(v1, s1), LowerDistance(v2, s2)) < epsilon)
+                                                      : (LowerIndex(v1, s1) + LowerIndex(v2, s2)) % 2 == 0;
+            return mode == 1 ? (draw ? Swap(c2, c1) : Color.Empty) : (draw ? Swap(c1, c2) : Swap(c2, c1));
+        };
+        private static Func<Complex, Color> GetColorComplex45(bool mode) => mode ? c => ObtainColorWheel(c, alpha: 1) : val =>
+        {
+            Complex _val = Complex.Log(val);
+            double alpha = (LowerRatio(_val.real, mod_stride) + LowerRatio(_val.imaginary, arg_stride)) / 2;
+            return ObtainColorWheel(val, GetShade(alpha));
+        };
+        private void RealLoop123(RealMatrix output, Color _zero, Color _pole, int mode, (double, double) mM)
+            => RealLoop(output, _zero, _pole, GetColorReal123(mode), mM);
+        private void RealLoop45(RealMatrix output, bool mode, (double, double) mM)
+            => RealLoop(output, Color.Black, Color.White, GetColorReal45(mode, mM), mM);
+        private void ComplexLoop123(ComplexMatrix output, Color _zero, Color _pole, int mode, bool isReIm)
+            => ComplexLoop(output, _zero, _pole, GetColorComplex123(mode, isReIm));
+        private void ComplexLoop45(ComplexMatrix output, bool mode)
+            => ComplexLoop(output, Color.Black, Color.White, GetColorComplex45(mode));
+        #endregion
+
+        #region Rendering
+        private void RealComputation()
+        {
+            Action<RealMatrix, (double, double)> realOperation = color_mode switch
+            {
+                1 => Real1,
+                2 => Real2,
+                3 => Real3,
+                4 => Real4,
+                5 => Real5
+            };
+            realOperation(output_real, FiniteExtremities(output_real, GetRow(borders), GetColumn(borders)));
         }
+        private void Real1(RealMatrix output, (double, double) mM) => RealLoop123(output, ZERO_BLUE, POLE_PURPLE, 1, mM);
+        private void Real2(RealMatrix output, (double, double) mM) => RealLoop123(output, ZERO_BLUE, POLE_PURPLE, 2, mM);
+        private void Real3(RealMatrix output, (double, double) mM) => RealLoop123(output, Color.Black, Color.White, 3, mM);
+        private void Real4(RealMatrix output, (double, double) mM) => RealLoop45(output, true, mM);
+        private void Real5(RealMatrix output, (double, double) mM) => RealLoop45(output, false, mM);
         private void ComplexComputation()
         {
-            switch (color_mode, contour_mode)
+            bool isReIm = contour_mode == 1;
+            Action<ComplexMatrix> complexOperation = color_mode switch
             {
-                case (1, 1): Complex1_ReIm(output_table); break;
-                case (2, 1): Complex2_ReIm(output_table); break;
-                case (3, 1): Complex3_ReIm(output_table); break;
-                case (1, _): Complex1_ModArg(output_table); break;
-                case (2, _): Complex2_ModArg(output_table); break;
-                case (3, _): Complex3_ModArg(output_table); break;
-                case (4, _): Complex4(output_table); break;
-                case (5, _): Complex5(output_table); break;
-            }
+                1 => isReIm ? Complex1_ReIm : Complex1_ModArg,
+                2 => isReIm ? Complex2_ReIm : Complex2_ModArg,
+                3 => isReIm ? Complex3_ReIm : Complex3_ModArg,
+                4 => Complex4,
+                5 => Complex5
+            };
+            complexOperation(output_complex);
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe void ComplexSpecial(int i, int j, ComplexMatrix output, int _row, int _column, byte* ptr, int stride, Color zeroColor, Color poleColor)
-        {
-            if (delete_point) return;
-            double modulus = Complex.Modulus(output[_row, _column]);
-            if (modulus < epsilon * SIZE_DIFF) SetPixelFast(i, j, ptr, stride, zeroColor);
-            else if (modulus > 1 / (epsilon * SIZE_DIFF)) SetPixelFast(i, j, ptr, stride, poleColor);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe void ProcessComplexData(int i, int j, ComplexMatrix output, byte* ptr, int stride, Color trueColor, Color falseColor, Color zeroColor, Color poleColor, bool mode1, Func<Complex, (double, double)> valueExtractor, double stepFactor1, double stepFactor2)
-        {
-            int _row = i - (x_left + 1), _column = j - (y_up + 1);
-            Complex value = output[_row, _column];
-            if (Double.IsNaN(value.real) || Double.IsNaN(value.imaginary)) return;
-            (double value1, double value2) = valueExtractor(value);
-            if (mode1)
-            {
-                if (LowerDistance(value1, stepFactor1) < epsilon || LowerDistance(value2, stepFactor2) < epsilon)
-                    SetPixelFast(i, j, ptr, stride, swap_colors ? falseColor : trueColor);
-            }
-            else SetPixelFast(i, j, ptr, stride, (LowerIndex(value1, stepFactor1) + LowerIndex(value2, stepFactor2)) % 2 == 0 ? trueColor : falseColor);
-            ComplexSpecial(i, j, output, _row, _column, ptr, stride, zeroColor, poleColor);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void ProcessComplexLoop(ComplexMatrix output, Color trueColor, Color falseColor, Color zeroColor, Color poleColor, bool mode1, Func<Complex, (double, double)> valueExtractor, double stepFactor1, double stepFactor2)
-        {
-            int xStart = x_left + 1, yStart = y_up + 1, xEnd = x_right, yEnd = y_down;
-            BitmapData bmpData = bitmap.LockBits(rect, ImageLockMode.ReadWrite, bitmap.PixelFormat);
-            byte* ptr = (byte*)bmpData.Scan0;
-            try
-            {
-                for (int i = xStart; i < xEnd; i++) for (int j = yStart; j < yEnd; j++)
-                        ProcessComplexData(i, j, output, ptr, bmpData.Stride, trueColor, falseColor, zeroColor, poleColor, mode1, valueExtractor, stepFactor1, stepFactor2);
-            }
-            finally { bitmap.UnlockBits(bmpData); }
-        }
-        private unsafe void ComplexReImLoop(ComplexMatrix output, Color trueColor, Color falseColor, Color zeroColor, Color poleColor, bool mode1)
-            => ProcessComplexLoop(output, trueColor, falseColor, zeroColor, poleColor, mode1, c => (c.real, c.imaginary), steps, steps);
-        private unsafe void ComplexModArgLoop(ComplexMatrix output, Color trueColor, Color falseColor, Color zeroColor, Color poleColor, bool mode1)
-            => ProcessComplexLoop(output, trueColor, falseColor, zeroColor, poleColor, mode1, c =>
-            (Complex.Log(c).real, Math.Atan2(c.imaginary, c.real)), steps * STEP_DIFF, deviation);
-        private void Complex1_ReIm(ComplexMatrix output)
-            => ComplexReImLoop(output, Color.White, Color.Black, ZERO_BLUE, POLE_PURPLE, true);
-        private void Complex2_ReIm(ComplexMatrix output)
-        {
-            Color trueColor = swap_colors ? Color.Black : Color.White;
-            Color falseColor = swap_colors ? Color.White : Color.Black;
-            ComplexReImLoop(output, trueColor, falseColor, ZERO_BLUE, POLE_PURPLE, false);
-        }
-        private void Complex3_ReIm(ComplexMatrix output)
-        {
-            Color trueColor = swap_colors ? LOWER_BLUE : UPPER_GOLD;
-            Color falseColor = swap_colors ? UPPER_GOLD : LOWER_BLUE;
-            ComplexReImLoop(output, trueColor, falseColor, Color.Black, Color.White, false);
-        }
-        private void Complex1_ModArg(ComplexMatrix output)
-            => ComplexModArgLoop(output, Color.White, Color.Black, ZERO_BLUE, POLE_PURPLE, true);
-        private void Complex2_ModArg(ComplexMatrix output)
-        {
-            Color trueColor = swap_colors ? Color.Black : Color.White;
-            Color falseColor = swap_colors ? Color.White : Color.Black;
-            ComplexModArgLoop(output, trueColor, falseColor, ZERO_BLUE, POLE_PURPLE, false);
-        }
-        private void Complex3_ModArg(ComplexMatrix output)
-        {
-            Color trueColor = swap_colors ? LOWER_BLUE : UPPER_GOLD;
-            Color falseColor = swap_colors ? UPPER_GOLD : LOWER_BLUE;
-            ComplexModArgLoop(output, trueColor, falseColor, Color.Black, Color.White, false);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Complex4(ComplexMatrix output)
-        {
-            int xStart = x_left + 1, yStart = y_up + 1, xEnd = x_right, yEnd = y_down;
-            BitmapData bmpData = bitmap.LockBits(rect, ImageLockMode.ReadWrite, bitmap.PixelFormat);
-            byte* ptr = (byte*)bmpData.Scan0;
-            try
-            {
-                for (int i = xStart; i < xEnd; i++)
-                {
-                    for (int j = yStart, _row = i - xStart; j < yEnd; j++)
-                    {
-                        int _column = j - yStart;
-                        Complex value = output[_row, _column];
-                        if (Double.IsNaN(value.real) || Double.IsNaN(value.imaginary)) continue;
-                        Color pixelColor = shade_rainbow ? ObtainWheelAlpha(value) : ObtainWheel(value);
-                        SetPixelFast(i, j, ptr, bmpData.Stride, pixelColor);
-                        ComplexSpecial(i, j, output, _row, _column, ptr, bmpData.Stride, Color.Black, Color.White);
-                    }
-                }
-            }
-            finally { bitmap.UnlockBits(bmpData); }
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Complex5(ComplexMatrix output)
-        {
-            int xStart = x_left + 1, yStart = y_up + 1, xEnd = x_right, yEnd = y_down;
-            BitmapData bmpData = bitmap.LockBits(rect, ImageLockMode.ReadWrite, bitmap.PixelFormat);
-            byte* ptr = (byte*)bmpData.Scan0;
-            try
-            {
-                for (int i = xStart; i < xEnd; i++)
-                {
-                    for (int j = yStart, _row = i - xStart; j < yEnd; j++)
-                    {
-                        int _column = j - yStart;
-                        Complex value = output[_row, _column];
-                        if (Double.IsNaN(value.real) || Double.IsNaN(value.imaginary)) continue;
-                        double _modulus = Complex.Log(value).real;
-                        double _argument = Math.Atan2(value.imaginary, value.real);
-                        double alpha = (LowerRatio(_modulus, steps * STEP_DIFF) + LowerRatio(_argument, deviation)) / 2;
-                        double normalAlpha = (alpha - 1) / SHADE_DENSITY + 1;
-                        Color pixelColor = shade_rainbow ? ObtainWheelAlpha(value, normalAlpha) : ObtainWheel(value, normalAlpha);
-                        SetPixelFast(i, j, ptr, bmpData.Stride, pixelColor);
-                        ComplexSpecial(i, j, output, _row, _column, ptr, bmpData.Stride, Color.Black, Color.White);
-                    }
-                }
-            }
-            finally { bitmap.UnlockBits(bmpData); }
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public unsafe void SetPixelFast(int x, int y, byte* ptr, int stride, Color color)
-        {
-            point_number++;
-            int pixelIndex = y * stride + x * 4; // Assuming 32bpp (ARGB format)
-            ptr[pixelIndex] = color.B;
-            ptr[pixelIndex + 1] = color.G;
-            ptr[pixelIndex + 2] = color.R;
-            ptr[pixelIndex + 3] = color.A;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe static void ClearBitmap(Bitmap bitmap, Rectangle rect)
-        {
-            BitmapData bmpData = bitmap.LockBits(rect, ImageLockMode.WriteOnly, bitmap.PixelFormat);
-            int bytesPerPixel = Image.GetPixelFormatSize(bitmap.PixelFormat) / 8;
-            int height = rect.Height, widthInBytes = rect.Width * bytesPerPixel, stride = bmpData.Stride;
-            byte* ptr = (byte*)bmpData.Scan0;
-            Parallel.For(0, height, y => {
-                byte* row = ptr + y * stride;
-                for (int x = 0; x < widthInBytes; x += bytesPerPixel) row[x + 3] = 0;
-            });
-            bitmap.UnlockBits(bmpData);
-        }
-        private static void BeginRendering() { if (!retain_graph) ClearBitmap(bitmap, rect); }
-        private void EndRendering()
-        {
-            if (is_checking) return;
-            PointNumDisplay.Text = point_number.ToString();
-            if (auto_export) RunExportButton_Click();
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe static (DoubleMatrix xCoor, DoubleMatrix yCoor) SetCoor(int row, int column)
-        {
-            DoubleMatrix xCoor = new(row, column), yCoor = new(row, column);
-            Parallel.For(0, row, i =>
-            {
-                double* xCoorPtr = xCoor.RowPtr(i), yCoorPtr = yCoor.RowPtr(i);
-                for (int j = 0; j < column; j++, xCoorPtr++, yCoorPtr++)
-                {
-                    double[] coor = InverseTransform(i + x_left + 1, j + y_up + 1, scopes, borders);
-                    *xCoorPtr = coor[0]; *yCoorPtr = coor[1];
-                }
-            });
-            return (xCoor, yCoor);
-        }
-        private static void Computation(string input, int row, int column)
-        {
-            (DoubleMatrix xCoor, DoubleMatrix yCoor) = SetCoor(row, column);
-            if (!complex_mode) Output_table = new RealSub(input, xCoor, yCoor, row, column).Obtain();
-            else output_table = new ComplexSub(input, xCoor, yCoor, row, column).Obtain();
-        }
-        private static void PrepareAxes(Graphics g)
-        {
-            if (is_checking) return;
-            DrawBorders(g);
-            if (!retain_graph)
-            {
-                g.FillRectangle(new SolidBrush(Color.Black), x_left + 1, y_up + 1, x_right - x_left - 1, y_down - y_up - 1);
-                SetAxesDrawn(false);
-            }
-            if (!delete_coordinate && !(is_main ? Axes_drawn : axes_drawn))
-            {
-                DrawAxesGrid(g, scopes, borders);
-                SetAxesDrawn(true);
-            }
-        }
-        private static void DrawBorders(Graphics g)
-        {
-            Pen BlackPen = new(Color.White, 1);
-            g.DrawLine(BlackPen, x_left, y_up, x_right, y_up);
-            g.DrawLine(BlackPen, x_right, y_up, x_right, y_down);
-            g.DrawLine(BlackPen, x_right, y_down, x_left, y_down);
-            g.DrawLine(BlackPen, x_left, y_down, x_left, y_up);
-        }
-        private static void DrawAxesGrid(Graphics g, double[] scopes, int[] borders)
-        {
-            double xGrid = Math.Pow(5, Math.Floor(Math.Log((scopes[1] - scopes[0]) / 2) / Math.Log(5)));
-            double yGrid = Math.Pow(5, Math.Floor(Math.Log((scopes[2] - scopes[3]) / 2) / Math.Log(5)));
-            DrawGrid(g, scopes, borders, xGrid, yGrid, 3);
-            DrawGrid(g, scopes, borders, xGrid / 5, yGrid / 5, 2);
-            DrawAxes(g, scopes, borders);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void DrawGrid(Graphics g, double[] scopes, int[] borders, double xGrid, double yGrid, float penWidth)
-        {
-            Pen gridPen = new(GRID_GRAY, penWidth);
-            for (int i = (int)Math.Floor(scopes[3] / yGrid); i <= (int)Math.Ceiling(scopes[2] / yGrid); i++)
-            {
-                int gridPosition = Transform(0, i * yGrid, scopes, borders)[1];
-                if (gridPosition > borders[2] && gridPosition < borders[3])
-                    g.DrawLine(gridPen, borders[0] + 1, gridPosition, borders[1], gridPosition);
-            }
-            for (int i = (int)Math.Floor(scopes[0] / xGrid); i <= (int)Math.Ceiling(scopes[1] / xGrid); i++)
-            {
-                int gridPosition = Transform(i * xGrid, 0, scopes, borders)[0];
-                if (gridPosition > borders[0] && gridPosition < borders[1])
-                    g.DrawLine(gridPen, gridPosition, borders[3], gridPosition, borders[2] + 1);
-            }
-        }
-        private static void DrawAxes(Graphics g, double[] scopes, int[] borders)
-        {
-            Pen axisPen = new(Color.DarkGray, 4);
-            int[] axisPositions = Transform(0, 0, scopes, borders);
-            if (axisPositions[1] > borders[2] && axisPositions[1] < borders[3])
-                g.DrawLine(axisPen, borders[0] + 1, axisPositions[1], borders[1], axisPositions[1]);
-            if (axisPositions[0] > borders[0] && axisPositions[0] < borders[1])
-                g.DrawLine(axisPen, axisPositions[0], borders[3], axisPositions[0], borders[2] + 1);
-        }
-        private static void SetAxesDrawn(bool drawn)
-        {
-            if (is_main) Axes_drawn = drawn;
-            else axes_drawn = drawn;
-        }
+        private void Complex1_ReIm(ComplexMatrix output) => ComplexLoop123(output, ZERO_BLUE, POLE_PURPLE, 1, true);
+        private void Complex2_ReIm(ComplexMatrix output) => ComplexLoop123(output, ZERO_BLUE, POLE_PURPLE, 2, true);
+        private void Complex3_ReIm(ComplexMatrix output) => ComplexLoop123(output, Color.Black, Color.White, 3, true);
+        private void Complex1_ModArg(ComplexMatrix output) => ComplexLoop123(output, ZERO_BLUE, POLE_PURPLE, 1, false);
+        private void Complex2_ModArg(ComplexMatrix output) => ComplexLoop123(output, ZERO_BLUE, POLE_PURPLE, 2, false);
+        private void Complex3_ModArg(ComplexMatrix output) => ComplexLoop123(output, Color.Black, Color.White, 3, false);
+        private void Complex4(ComplexMatrix output) => ComplexLoop45(output, true);
+        private void Complex5(ComplexMatrix output) => ComplexLoop45(output, false);
         #endregion
 
-        #region Graphing
-        private void DisplayBase(Action renderModes)
+        #region Curves
+        private (double, double, double) SetStartEndIncrement(string[] split, bool isPolar, bool isParam)
         {
-            if (is_checking) return;
-            Graphics g = CreateGraphics();
-            BeginRendering();
-            renderModes();  // Dynamically render complex or real modes
-            PrepareAxes(g);
-            g.DrawImage(bitmap, 0, 0);
-            EndRendering();
-        }
-        private ComplexMatrix DisplayMini(string input, ComplexMatrix z, ComplexMatrix Z)
-        {
-            int row = x_right - x_left, column = y_down - y_up;
-            output_table = new ComplexSub(input, z, Z, row, column).Obtain();
-            DisplayBase(ComplexComputation);
-            return output_table;
-        }
-        private DoubleMatrix DisplayMini(string input, DoubleMatrix x, DoubleMatrix y, DoubleMatrix X)
-        {
-            int row = x_right - x_left, column = y_down - y_up;
-            Output_table = new RealSub(input, x, y, X, new(row, column), row, column).Obtain();
-            DisplayBase(() => RealComputation(row, column));
-            return Output_table;
-        }
-        private void DisplayPro(string input)
-        {
-            int row = x_right - x_left, column = y_down - y_up;
-            Computation(input, row, column);
-            DisplayBase(() => {
-                if (!complex_mode) RealComputation(row, column);
-                else ComplexComputation();
-            });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private void DisplayBase(string input, bool isPolar = false, bool isParam = false)
-        {
-            times = 0;
-            string[] split = MyString.SplitString(input);
-            Graphics g = CreateGraphics();
-            PrepareAxes(g);
-            int penWidth = (int)(PARAM_WIDTH * RealSub.Obtain(ThickInput.Text));
-            Pen curve_pen = new(swap_colors ? Color.Black : Color.White, penWidth);
-            Pen colorful_pen = new(Color.Black, penWidth);
-            Pen black_pen = new(swap_colors ? Color.White : Color.Black, penWidth);
-            Pen white_pen = new(swap_colors ? Color.Black : Color.White, penWidth);
-            Pen blue_pen = new(swap_colors ? LOWER_BLUE : UPPER_GOLD, penWidth);
-            Pen yellow_pen = new(swap_colors ? UPPER_GOLD : LOWER_BLUE, penWidth);
-            double relative_speed = RealSub.Obtain(DenseInput.Text);
-            double start = 0, ending = 0, increment = INCREMENT_DEFAULT;
-            if (isParam)
+            (double, double, double) initializeParamPolar(int relPos)
             {
-                start = RealSub.Obtain(split[3]);
-                ending = RealSub.Obtain(split[4]);
-                if (split.Length > 5) increment = RealSub.Obtain(split[5]);
+                MyString.ThrowInvalidLengths(split, new int[] { relPos + 2, relPos + 3 });
+                return (RealSub.Obtain(split[relPos]), RealSub.Obtain(split[relPos + 1]),
+                    split.Length == relPos + 3 ? RealSub.Obtain(split[relPos + 2]) : INCREMENT);
             }
-            else if (isPolar)
-            {
-                start = RealSub.Obtain(split[2]);
-                ending = RealSub.Obtain(split[3]);
-                if (split.Length > 4) increment = RealSub.Obtain(split[4]);
-            }
+            if (isParam) return initializeParamPolar(3);
+            else if (isPolar) return initializeParamPolar(2);
             else
             {
-                double range = RealSub.Obtain(GeneralInput.Text);
-                double range_1 = (GeneralInput.Text == "0") ? RealSub.Obtain(X_Left.Text) : -range;
-                double range_2 = (GeneralInput.Text == "0") ? RealSub.Obtain(X_Right.Text) : range;
-                switch (split.Length)
+                MyString.ThrowInvalidLengths(split, new int[] { 0, 1, 2, 3, 4 }); double range = Obtain(GeneralInput);
+                double getRange(TextBox tbx, bool minus) => GeneralInput_Undo() ? RealSub.Obtain(tbx.Text) : (minus ? -range : range);
+                return (split.Length < 3 ? getRange(X_Left, true) : RealSub.Obtain(split[1]),
+                    split.Length < 3 ? getRange(X_Right, false) : RealSub.Obtain(split[2]),
+                    split.Length == 2 ? RealSub.Obtain(split[1]) : (split.Length == 4 ? RealSub.Obtain(split[3]) : INCREMENT));
+            }
+        }
+        private unsafe static (RealMatrix, RealMatrix, int, bool) SetCurveValues(string[] split, bool isPolar, bool isParam,
+            double start, double end, double increment)
+        {
+            string replace(string s, int index) => s.Replace(split[index], "x");
+            string tag1 = ReplaceTags.FUNC_HEAD + ReplaceTags.COS, tag2 = ReplaceTags.FUNC_HEAD + ReplaceTags.SIN,
+                input1 = isParam ? replace(split[0], 2) : isPolar ? replace($"({split[0]})*{tag1}({split[1]})", 1) : "x",
+                input2 = isParam ? replace(split[1], 2) : isPolar ? replace($"({split[0]})*{tag2}({split[1]})", 1) : split[0];
+
+            int length = (int)((end - start) / increment), _length = length + 2; // For safety
+            RealMatrix partition = new(1, _length); double steps = start;
+            double obtainCheck(string input) => RealSub.Obtain(input, steps);
+            if (is_checking) { _ = obtainCheck(input1); _ = obtainCheck(input2); return (partition, partition, length, true); }
+
+            double* partPtr = partition.Ptr();
+            for (int i = 0; i < _length; i++, partPtr++, steps += increment) *partPtr = steps;
+            RealMatrix obtain(string input) => new RealSub(input, partition, null, null, null, 1, _length).Obtain();
+            return (obtain(input1), obtain(input2), length, false);
+        }
+        private unsafe void DrawCurve(RealMatrix val1, RealMatrix val2, int length)
+        {
+            var curveWidth = (float)Math.Min(CURVE_WIDTH * Obtain(ThickInput), CURVE_WIDTH_LIMIT);
+            Pen dichoPen(Color c1, Color c2) => new(Swap(c1, c2), curveWidth);
+            Pen vividPen = dichoPen(Color.Empty, Color.Empty), defaultPen = dichoPen(Color.Black, Color.White),
+                blackPen = dichoPen(Color.White, Color.Black), whitePen = dichoPen(Color.Black, Color.White),
+                bluePen = dichoPen(LOWER_BLUE, UPPER_GOLD), yellowPen = dichoPen(UPPER_GOLD, LOWER_BLUE),
+                selectedPen = color_mode == 1 ? defaultPen : vividPen;
+
+            Point pos = new(), posBuffer = new(); bool inRange, inRangeBuffer = false; int _ratio, reference = 0;
+            double relativeSpeed = Obtain(DenseInput) / length, ratio; double* v1Ptr = val1.Ptr(), v2Ptr = val2.Ptr();
+
+            for (int steps = 0; steps <= length; steps++, v1Ptr++, v2Ptr++)
+            {
+                (pos.X, pos.Y) = LinearTransform(*v1Ptr, *v2Ptr, borders);
+                inRange = *v1Ptr > scopes[0] && *v1Ptr < scopes[1] && *v2Ptr > scopes[3] && *v2Ptr < scopes[2];
+                if (inRangeBuffer && inRange)
                 {
-                    case 1:
-                        start = range_1;
-                        ending = range_2;
-                        break;
-                    case 2:
-                        increment = RealSub.Obtain(split[1]);
-                        start = range_1;
-                        ending = range_2;
-                        break;
-                    case 3:
-                        start = RealSub.Obtain(split[1]);
-                        ending = RealSub.Obtain(split[2]);
-                        break;
-                    case 4:
-                        start = RealSub.Obtain(split[1]);
-                        ending = RealSub.Obtain(split[2]);
-                        increment = RealSub.Obtain(split[3]);
-                        break;
-                }
-            }
-            int Length = (int)Math.Abs((start - ending) / increment) + 2;
-            double[,] coor = new double[2, Length]; // Efficient memory access
-            bool[] in_range = new bool[Length];
-            int[,] pos = new int[2, Length]; // Efficient memory access
-            double xCoor_left = InverseTransform(x_left, 0, scopes, borders)[0];
-            double xCoor_right = InverseTransform(x_right, 0, scopes, borders)[0];
-            double yCoor_up = InverseTransform(0, y_up, scopes, borders)[1];
-            double yCoor_down = InverseTransform(0, y_down, scopes, borders)[1];
-            string input_1 = "x";
-            string input_2 = split[0];
-            if (isPolar || isParam)
-            {
-                input_1 = isPolar ? $"({split[0]})*~c({split[1]})".Replace(split[1], "x") : split[0].Replace(split[2], "x");
-                input_2 = isPolar ? $"({split[0]})*~s({split[1]})".Replace(split[1], "x") : split[1].Replace(split[2], "x");
-            }
-            DoubleMatrix Steps = new(1, Length); // Efficient memory access
-            double temp = start;
-            if (is_checking)
-            {
-                coor[0, 0] = RealSub.Obtain(input_1, temp);
-                coor[1, 0] = RealSub.Obtain(input_2, temp);
-                return;
-            }
-            else
-            {
-                for (int i = 0; i < Length; i++, temp += increment) Steps[0, i] = temp;
-                DoubleMatrix value_1 = new RealSub(input_1, Steps, 1, Length).Obtain();
-                DoubleMatrix value_2 = new RealSub(input_2, Steps, 1, Length).Obtain();
-                for (int i = 0; i < Length; i++)
-                {
-                    coor[0, i] = value_1[0, i];
-                    coor[1, i] = value_2[0, i];
-                }
-            }
-            int reference = 0;
-            for (double steps = start; steps <= ending; steps += increment)
-            {
-                pos[0, times] = Transform(coor[0, times], 0, scopes, borders)[0];
-                pos[1, times] = Transform(0, coor[1, times], scopes, borders)[1];
-                in_range[times] = coor[0, times] > xCoor_left && coor[0, times] < xCoor_right &&
-                                                 coor[1, times] > yCoor_down && coor[1, times] < yCoor_up;
-                if (times > 0 && in_range[times - 1] && in_range[times])
-                {
-                    double ratio = relative_speed * (steps - start) / (ending - start) % 1;
-                    Pen selectedPen = color_mode switch
+                    ratio = relativeSpeed * steps % 1;
+                    selectedPen = color_mode switch
                     {
-                        1 => curve_pen,
-                        2 => ratio < 0.5 ? white_pen : black_pen,
-                        3 => ratio < 0.5 ? blue_pen : yellow_pen,
-                        _ => colorful_pen
+                        2 => ratio < 0.5 ? whitePen : blackPen,
+                        3 => ratio < 0.5 ? bluePen : yellowPen,
+                        _ => selectedPen
                     };
-                    if (color_mode != 1 && color_mode != 2 && color_mode != 3) colorful_pen.Color = ObtainWheelCurve(ratio);
-                    g.DrawLine(selectedPen, pos[0, times - 1], pos[1, times - 1], pos[0, times], pos[1, times]);
-                    VScrollBarX.Enabled = VScrollBarY.Enabled = true; // This is necessary for each loop
-                    ScrollMoving(pos[0, times], pos[1, times]);
-                    if (reference != (int)(ratio * 100)) DrawReferenceRectangles(selectedPen.Color);
-                    reference = (int)(ratio * 100);
+                    if (color_mode > 3) vividPen.Color = ObtainColorWheelCurve(ratio);
+                    graphics.DrawLine(selectedPen, posBuffer, pos);
+
+                    SetScrollBars(true); // Necessary for each loop
+                    DrawScrollBar(LinearTransform(pos.X, pos.Y, borders));
+                    _ratio = Frac(REFRESH, ratio);
+                    if (reference != _ratio) DrawReferenceRectangles(selectedPen.Color);
+                    reference = _ratio;
                 }
-                times++; // This is a sensitive position
+                inRangeBuffer = inRange;
+                posBuffer = pos;
+                segment_number++; // Sensitive position
             }
-            point_number += times; times = 0;
-            EndRendering();
         }
-        private void DisplayFunction(string input) => DisplayBase(input);
-        private void DisplayPolar(string input) => DisplayBase(input, isPolar: true);
-        private void DisplayParam(string input) => DisplayBase(input, isParam: true);
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        //
+        private void DisplayFPPBase(string input, bool isPolar = false, bool isParam = false)
+        {
+            string[] split = MyString.SplitString(input);
+            var (start, end, increment) = SetStartEndIncrement(split, isPolar, isParam);
+            MyString.ThrowException(start >= end);
+            var (val1, val2, length, isChecking) = SetCurveValues(split, isPolar, isParam, start, end, increment);
+            if (isChecking) return;
+            DisplayBase(() => { DrawCurve(val1, val2, length); pixel_number += segment_number; segment_number = 0; });
+        }
+        private void DisplayFunction(string input) => DisplayFPPBase(input); // Necessary
+        private void DisplayPolar(string input) => DisplayFPPBase(input, isPolar: true);
+        private void DisplayParam(string input) => DisplayFPPBase(input, isParam: true);
+        #endregion
+
+        #region Graph Display
+        private void DisplayBase(Action drawAction)
+        {
+            DrawBackdropAxesGrids(borders, is_main, freeze_graph);
+            graphics.DrawRectangle(_BDR_PEN, GetRect(borders));
+            drawAction();
+            SetText(PointNumDisplay, pixel_number.ToString());
+            if (is_auto) RunExport();
+        }
+        private void RunDisplayBase(Action computeAction)
+        {
+            if (is_checking) return; // Necessary
+            ClearBitmap(bmp_mac); ClearBitmap(bmp_mic); // Necessary courtesy of ZAL
+            computeAction();
+            DisplayBase(() => { graphics.DrawImage(GetBitmap(is_main), 0, 0); });
+        }
+        private void DisplayRendering(string input)
+        {
+            var (row, column, xCoor, yCoor) = GetRowColumnCoor();
+            if (is_complex) output_complex = new ComplexSub(input, xCoor, yCoor, row, column).Obtain();
+            else output_real = new RealSub(input, xCoor, yCoor, null, null, row, column).Obtain();
+            RunDisplayBase(is_complex ? ComplexComputation : RealComputation);
+        }
+        private RealMatrix DisplayItLoopReal(string input, RealMatrix x, RealMatrix y, RealMatrix X, int row, int column)
+        {
+            output_real = new RealSub(input, x, y, X, null, row, column).Obtain();
+            RunDisplayBase(RealComputation);
+            return output_real; // Presently not used
+        }
+        private ComplexMatrix DisplayItLoopComplex(string input, ComplexMatrix z, ComplexMatrix Z, int row, int column)
+        {
+            output_complex = new ComplexSub(input, z, Z, row, column).Obtain();
+            RunDisplayBase(ComplexComputation);
+            return output_complex;
+        }
+        private void DisplayIterateLoop(string[] split)
+        {
+            var (row, column, x, y) = GetRowColumnCoor();
+            int int3 = RealSub.ToInt(split[3]), int4 = Math.Max(int3, RealSub.ToInt(split[4])); // Necessary
+            string replaceLoop(int times) => MyString.ReplaceLoop(split, 0, 2, times);
+            if (is_complex)
+            {
+                ComplexMatrix _initial = ComplexSub.InitilizeZ(x, y, row, column);
+                ComplexMatrix _inherit = new ComplexSub(split[1], _initial, null, row, column).Obtain();
+                MyString.ThrowInvalidLengths(split, new int[] { 5 });
+                MyString.For(int3, is_checking ? int3 : int4, times =>
+                { _inherit = DisplayItLoopComplex(replaceLoop(times), _initial, _inherit, row, column); });
+            }
+            else // The logic is slightly different between real and complex
+            {
+                RealMatrix _inherit = new RealSub(split[1], x, y, null, null, row, column).Obtain();
+                MyString.ThrowInvalidLengths(split, new int[] { 6 });
+                MyString.For(int3, is_checking ? int3 : int4, times =>
+                {
+                    _inherit = new RealSub(replaceLoop(times), x, y, _inherit, null, row, column).Obtain();
+                    DisplayItLoopReal(split[5], x, y, _inherit, row, column);
+                });
+            }
+        }
         private void DisplayLoop(string input)
         {
-            input = MyString.ReplaceTagCurves(input); // This is necessary
-            string[] split = MyString.SplitString(input);
-            if (input.Contains('δ')) { DisplayIterateLoop(split); return; }
-            Action<string> displayMethod = 
-                input.Contains('α') ? DisplayFunction : input.Contains('β') ? DisplayPolar : input.Contains('γ') ? DisplayParam : DisplayPro;
-            for (int times = MyString.ToInt(split[2]), int3 = MyString.ToInt(split[3]); times <= int3; times++)
-                displayMethod(split[0].Replace(split[1], MyString.IndexSub(times)));
+            input = ReplaceTags.ReplaceCurves(input); string[] split = MyString.SplitString(input); // Do not merge into one
+            bool containsTag(string s) => input.Contains(String.Concat(ReplaceTags.FUNC_HEAD, s, ReplaceTags.UNDERLINE, '('));
+            if (containsTag(ReplaceTags.ITLOOP)) { DisplayIterateLoop(split); return; }
+
+            Action<string> displayMethod =
+                containsTag(ReplaceTags.FUNC) ? DisplayFunction :
+                containsTag(ReplaceTags.POLAR) ? DisplayPolar :
+                containsTag(ReplaceTags.PARAM) ? DisplayParam : DisplayRendering;
+
+            int int2 = RealSub.ToInt(split[2]), int3 = Math.Max(int2, RealSub.ToInt(split[3])); // Necessary
+            MyString.For(int2, int3, times => { displayMethod(MyString.ReplaceLoop(split, 0, 1, times)); });
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void DisplayIterateLoop(string[] split)
+        private void DisplayOnScreen()
         {
-            int row = x_right - x_left, column = y_down - y_up;
-            (DoubleMatrix xCoor, DoubleMatrix yCoor) = SetCoor(row, column);
-            if (complex_mode)
+            if (NoInput()) return; // Necessary
+            string[] split = MyString.SplitByChars(RecoverMultiply.Beautify(InputString.Text, is_complex), "|");
+            for (int loops = 0; loops < split.Length; loops++)
             {
-                ComplexMatrix table_initial = new(row, column);
-                Parallel.For(0, row, i => {
-                    double* xCoorPtr = xCoor.RowPtr(i), yCoorPtr = yCoor.RowPtr(i); Complex* tablePtr = table_initial.RowPtr(i);
-                    for (int j = 0; j < column; j++,xCoorPtr++, yCoorPtr++, tablePtr++) *tablePtr = new(*xCoorPtr, *yCoorPtr);
-                });
-                ComplexMatrix table_inherit = new ComplexSub(split[1], table_initial, row, column).Obtain();
-                if (split.Length != 5) throw new FormatException();
-                for (int times = MyString.ToInt(split[3]), int4 = MyString.ToInt(split[4]); times <= int4; times++)
-                {
-                    string temp_string = split[0].Replace(split[2], MyString.IndexSub(times));
-                    table_inherit = DisplayMini(temp_string, table_initial, table_inherit);
-                    if (is_checking) break;
-                }
-            }
-            else
-            {
-                DoubleMatrix table_inherit = new RealSub(split[1], xCoor, yCoor, row, column).Obtain();
-                if (split.Length != 6) throw new FormatException();
-                for (int times = MyString.ToInt(split[3]), int4 = MyString.ToInt(split[4]); times <= int4; times++)
-                {
-                    string temp = split[0].Replace(split[2], MyString.IndexSub(times));
-                    table_inherit = new RealSub(temp, xCoor, yCoor, table_inherit, table_inherit, row, column).Obtain();
-                    DisplayMini(split[5], xCoor, yCoor, table_inherit);
-                    if (is_checking) break;
-                }
+                bool containsTags(string s1, string s2) => MyString.ContainsAny(split[loops], new string[] { s1, s2 });
+                Action<string> displayMethod =    // Should not pull outside of the loop
+                    containsTags(MyString.LOOP_NAMES[0], MyString.LOOP_NAMES[1]) ? DisplayLoop :
+                    containsTags(MyString.FUNC_NAMES[0], MyString.FUNC_NAMES[1]) ? DisplayFunction :
+                    containsTags(MyString.FUNC_NAMES[2], MyString.FUNC_NAMES[3]) ? DisplayPolar :
+                    containsTags(MyString.FUNC_NAMES[4], MyString.FUNC_NAMES[5]) ? DisplayParam : DisplayRendering;
+                displayMethod(split[loops]);
             }
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static int CalculateAlpha(Complex input) => (int)(255 / (1 + decay_rate * Complex.Modulus(input)));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static (int region, int proportion) CalculatePhase(double argument)
-        {
-            int proportion, region = argument < 0 ? -1 : (int)(3 * argument / Math.PI);
-            if (region > 5) { region = proportion = 0; }
-            else proportion = (int)(255 * (argument - region * (Math.PI / 3)) / (Math.PI / 3));
-            return (region, proportion);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color Obtain(int region, int proportion, int alpha) => ObtainAlpha(region, proportion, 1, alpha);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainAlpha(int region, int proportion, double alpha, int beta) => region switch
-        {
-            0 => Color.FromArgb(beta, (int)(255 * alpha), (int)(proportion * alpha), 0),
-            1 => Color.FromArgb(beta, (int)((255 - proportion) * alpha), (int)(255 * alpha), 0),
-            2 => Color.FromArgb(beta, 0, (int)(255 * alpha), (int)(proportion * alpha)),
-            3 => Color.FromArgb(beta, 0, (int)((255 - proportion) * alpha), (int)(255 * alpha)),
-            4 => Color.FromArgb(beta, (int)(proportion * alpha), 0, (int)(255 * alpha)),
-            5 => Color.FromArgb(beta, (int)(255 * alpha), 0, (int)((255 - proportion) * alpha)),
-            _ => Color.Empty
-        };
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainWheel(Complex input) => ObtainWheelInternal(false, input, 255);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainWheel(Complex input, double alpha)
-            => ObtainWheelInternal(true, input, 255, Math.Clamp(alpha, 0, 1));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainWheelAlpha(Complex input) => ObtainWheelInternal(false, input, CalculateAlpha(input));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainWheelAlpha(Complex input, double alpha)
-            => ObtainWheelInternal(true, input, CalculateAlpha(input), Math.Clamp(alpha, 0, 1));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainWheelInternal(bool isAlpha, Complex input, int calculatedAlpha, double alpha = 0)
-        {
-            (int color_region, int temp_proportion) = CalculatePhase(ComplexSub.ArgumentForRGB(input));
-            return !isAlpha ? Obtain(color_region, temp_proportion, calculatedAlpha) 
-                : ObtainAlpha(color_region, temp_proportion, alpha, calculatedAlpha);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainWheelCurve(double alpha)
-        {
-            (int color_region, int temp_proportion) = CalculatePhase(Math.Clamp(alpha, 0, 1) * Math.Tau);
-            return Obtain(color_region, temp_proportion, 255);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color GetColorFromAlpha(double alpha, double beta, bool useBeta)
-        {
-            if (alpha <= 0.5) // From blue to purple
-            {
-                int red = (int)(510 * alpha), green = 0, blue = 255;
-                return Color.FromArgb(useBeta ? (int)(red * beta) : red, green, (int)(blue * (useBeta ? beta : 1)));
-            }
-            else // From purple to red
-            {
-                int temp = 255 - (int)(510 * (alpha - 0.5));
-                return Color.FromArgb((int)(255 * (useBeta ? beta : 1)), 0, (int)(temp * (useBeta ? beta : 1)));
-            }
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainBase(double input, double beta, double min, double max, bool useBeta)
-        {
-            double alpha = (input - min) / (max - min);
-            if (alpha >= 0 && alpha <= 1) return GetColorFromAlpha(alpha, useBeta ? beta : 1, useBeta);
-            return Color.Empty;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainStrip(double input, double min, double max) => ObtainBase(input, 1, min, max, false);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Color ObtainStripAlpha(double input, double beta, double min, double max)
-            => ObtainBase(input, beta, min, max, true);
         #endregion
 
-        #region Mouse
+        #region Color Extractors
+        private static Color ObtainColorBase(double argument, double alpha, int decay) // alpha: brightness
+        {
+            if (IllegalRatio(alpha)) return Color.Empty; // Necessary
+            double temp = argument * 3 / Math.PI; int proportion, region = argument < 0 ? -1 : (int)temp;
+            if (region == 6) region = proportion = 0; else proportion = Frac(255, temp - region);
+
+            Color getArgb(int r, int g, int b) => Argb(decay, r, g, b);
+            return region switch
+            {
+                0 => getArgb(Frac(255, alpha), Frac(proportion, alpha), 0),
+                1 => getArgb(Frac(255 - proportion, alpha), Frac(255, alpha), 0),
+                2 => getArgb(0, Frac(255, alpha), Frac(proportion, alpha)),
+                3 => getArgb(0, Frac(255 - proportion, alpha), Frac(255, alpha)),
+                4 => getArgb(Frac(proportion, alpha), 0, Frac(255, alpha)),
+                5 => getArgb(Frac(255, alpha), 0, Frac(255 - proportion, alpha)),
+                _ => Color.Empty
+            }; // The ARGB hexagon for standard domain coloring
+        }
+        private static Color ObtainColorWheel(Complex c, double alpha = 1)
+            => ObtainColorBase(ArgRGB(c.real, c.imaginary), alpha, (int)(255 / (1 + decay * Complex.Modulus(shade ? c : Complex.ZERO))));
+        private static Color ObtainColorWheelCurve(double alpha) => ObtainColorBase(alpha * Math.Tau, 1, 255);
+        private static Color ObtainColorStrip(double d, double min, double max, double alpha = 1) // alpha: brightness
+        {
+            if (min == max) return Color.Empty; // Necessary
+            double beta = (Math.Atan(d) - min) / (max - min);
+            if (IllegalRatio(alpha) || IllegalRatio(beta)) return Color.Empty; // Necessary
+            return beta < 0.5 ? Argb(Frac(Frac(510, beta), alpha), 0, Frac(255, alpha))
+                                           : Argb(Frac(255, alpha), 0, Frac(255 - Frac(510, beta - 0.5), alpha));
+        }
+        #endregion
+
+        // 3.INTERACTIONS
+        #region Mouse Move & Mouse Down
         private void Graph_MouseMove(object sender, MouseEventArgs e)
         {
-            if (!(activate_mousemove && clicked && !text_changed && !String.IsNullOrEmpty(InputString.Text))) return;
-            if (!is_main && e.X > X_LEFT_MIC && e.X < X_RIGHT_MIC && e.Y > Y_UP_MIC && e.Y < Y_DOWN_MIC)
-                RunMouseMove(sender, e, X_LEFT_MIC, X_RIGHT_MIC, Y_UP_MIC, Y_DOWN_MIC);
-            else if (is_main && e.X > X_LEFT_MAC && e.X < X_RIGHT_MAC && e.Y > Y_UP_MAC && e.Y < Y_DOWN_MAC)
-                RunMouseMove(sender, e, X_LEFT_MAC, X_RIGHT_MAC, Y_UP_MAC, Y_DOWN_MAC);
-            else DefaultReference(false);
+            if (!ActivateMoveDown()) return;
+            CheckMoveDown(b => RunMouse(e, b, RunMouseMove, () =>
+            { Cursor = Cursors.Default; DrawReferenceRectangles(SystemColors.ControlDark); SetScrollBars(false); }));
         }
         private void Graph_MouseDown(object sender, MouseEventArgs e)
         {
-            if (!(activate_mousemove && clicked && !text_changed && !String.IsNullOrEmpty(InputString.Text))) return;
-            if (!is_main && e.X > X_LEFT_MIC && e.X < X_RIGHT_MIC && e.Y > Y_UP_MIC && e.Y < Y_DOWN_MIC)
-                RunMouseDown(e, X_LEFT_MIC, X_RIGHT_MIC, Y_UP_MIC, Y_DOWN_MIC);
-            else if (is_main && e.X > X_LEFT_MAC && e.X < X_RIGHT_MAC && e.Y > Y_UP_MAC && e.Y < Y_DOWN_MAC)
-                RunMouseDown(e, X_LEFT_MAC, X_RIGHT_MAC, Y_UP_MAC, Y_DOWN_MAC);
+            if (!ActivateMoveDown()) return;
+            CheckMoveDown(b => RunMouse(e, b, RunMouseDown, null));
         }
-        private static void HandleMouseAction(MouseEventArgs e, int x_left, int x_right, int y_up, int y_down, Action<double, double> action)
+        private void RunMouseMove(MouseEventArgs e, int[] borders)
         {
-            int[] borders = new int[] { x_left, x_right, y_up, y_down };
-            action(InverseTransform(e.X, e.Y, scopes, borders)[0], InverseTransform(e.X, e.Y, scopes, borders)[1]);
+            Cursor = Cursors.Cross;
+            Graphics.FromImage(BMP_PIXEL).CopyFromScreen(Cursor.Position, Point.Empty, SIZE_PIXEL);
+            DrawReferenceRectangles(BMP_PIXEL.GetPixel(0, 0));
+            SetScrollBars(true);
+            HandleMouseAction(e, borders, v => { DrawScrollBar(v); DisplayMouseMove(e, v.Item1, v.Item2); });
         }
-        private void RunMouseMove(object sender, MouseEventArgs e, int x_left, int x_right, int y_up, int y_down)
+        private void RunMouseDown(MouseEventArgs e, int[] borders)
         {
-            SetReference(sender, e);
-            HandleMouseAction(e, x_left, x_right, y_up, y_down, (xCoor, yCoor)
-                => { ScrollMoving(xCoor, yCoor); DisplayMouseMove(e, xCoor, yCoor); });
+            chosen_number++;
+            HandleMouseAction(e, borders, v => { DisplayMouseDown(e, v.Item1, v.Item2); });
         }
-        private void RunMouseDown(MouseEventArgs e, int x_left, int x_right, int y_up, int y_down)
-        {
-            points_chosen++;
-            HandleMouseAction(e, x_left, x_right, y_up, y_down, (xCoor, yCoor) => { DisplayMouseDown(e, xCoor, yCoor); });
-        }
+        //
+        private bool ActivateMoveDown() => activate_mouse && !error_input && !is_checking && !NoInput();
+        private static void RunMouse(MouseEventArgs e, int[] b, Action<MouseEventArgs, int[]> action, Action? _action)
+        { if (e.X > b[0] && e.X < b[1] && e.Y > b[2] && e.Y < b[3]) action(e, b); else _action?.Invoke(); }
+        private static void CheckMoveDown(Action<int[]> checkMouse) => checkMouse(GetBorders(is_main ? 1 : 2));
+        private static void HandleMouseAction(MouseEventArgs e, int[] borders, Action<(double, double)> actionHandler)
+            => actionHandler(LinearTransform(e.X, e.Y, borders));
         private void DisplayMouseMove(MouseEventArgs e, double xCoor, double yCoor)
         {
-            X_CoorDisplay.Text = MyString.TrimLargeDouble(xCoor, 1000000);
-            Y_CoorDisplay.Text = MyString.TrimLargeDouble(yCoor, 1000000);
-            ModulusDisplay.Text = MyString.TrimLargeDouble(Math.Sqrt(xCoor * xCoor + yCoor * yCoor), 1000000);
-            AngleDisplay.Text = (ComplexSub.ArgumentForRGB(xCoor, yCoor) / Math.PI).ToString("#0.00000") + " * PI";
-            if (!MyString.ContainFunctionName(InputString.Text))
+            static string trimForMove(double input) => MyString.TrimLargeDouble(input, 1000000);
+            SetText(X_CoorDisplay, trimForMove(xCoor)); SetText(Y_CoorDisplay, trimForMove(yCoor));
+            SetText(ModulusDisplay, trimForMove(Complex.Modulus(xCoor, yCoor)));
+            SetText(AngleDisplay, MyString.GetAngle(xCoor, yCoor));
+
+            if (!MyString.ContainsFuncName(InputString.Text))
             {
-                if (!complex_mode) DisplayValuesReal(e.X, e.Y);
-                else DisplayValuesComplex(e.X, e.Y);
+                if (is_complex)
+                {
+                    Complex c = output_complex[e.X - AddOne(borders[0]), e.Y - AddOne(borders[2])];
+                    SetText(FunctionDisplay, $"[Re] {c.real}\r\n[Im] {c.imaginary}");
+                }
+                else SetText(FunctionDisplay, output_real[e.X - AddOne(borders[0]), e.Y - AddOne(borders[2])].ToString());
             }
-            else FunctionDisplay.Text = "Unavailable in this mode.";
+            else SetText(FunctionDisplay, DISPLAY_ERROR);
         }
         private void DisplayMouseDown(MouseEventArgs e, double xCoor, double yCoor)
         {
-            string X_Coor = MyString.TrimLargeDouble(xCoor, 100);
-            string Y_Coor = MyString.TrimLargeDouble(yCoor, 100);
-            string Modulus = MyString.TrimLargeDouble(Math.Sqrt(xCoor * xCoor + yCoor * yCoor), 100);
-            string Angle = (ComplexSub.ArgumentForRGB(xCoor, yCoor) / Math.PI).ToString("#0.000000") + " * PI";
-            if (!MyString.ContainFunctionName(InputString.Text))
+            static string trimForDown(double input) => MyString.TrimLargeDouble(input, 100);
+            string _xCoor = trimForDown(xCoor), _yCoor = trimForDown(yCoor),
+                Modulus = trimForDown(Complex.Modulus(xCoor, yCoor)), Angle = MyString.GetAngle(xCoor, yCoor);
+
+            string message = String.Empty;
+            if (!MyString.ContainsFuncName(InputString.Text))
             {
-                string ValueDisplay;
-                if (complex_mode)
+                message += "\r\n\r\n";
+                int x = e.X - AddOne(borders[0]), y = e.Y - AddOne(borders[2]);
+                if (is_complex)
                 {
-                    Complex clicked_value = output_table[e.X - 1 - x_left, e.Y - 1 - y_up];
-                    ValueDisplay = $"Re = {MyString.TrimLargeDouble(clicked_value.real, 100)}\r\n" +
-                        $"Im = {MyString.TrimLargeDouble(clicked_value.imaginary, 100)}";
+                    Complex c = output_complex[x, y];
+                    message += $"Re = {trimForDown(c.real)}\r\nIm = {trimForDown(c.imaginary)}";
                 }
-                else
-                {
-                    double clicked_value = Output_table[e.X - 1 - x_left, e.Y - 1 - y_up];
-                    ValueDisplay = $"f(x, y) = {MyString.TrimLargeDouble(clicked_value, 100)}";
-                }
-                DraftBox.Text = $"\r\n>>>>> POINT_{points_chosen} <<<<<\r\n\r\nx = {X_Coor}\r\ny = {Y_Coor}" +
-                    $"\r\n\r\nmod = {Modulus}\r\narg = {Angle}\r\n\r\n{ValueDisplay}\r\n" + DraftBox.Text;
+                else message += $"f(x, y) = {trimForDown(output_real[x, y])}";
             }
-            else DraftBox.Text = $"\r\n>>>>> POINT_{points_chosen} <<<<<\r\n\r\nx = {X_Coor}\r\ny = {Y_Coor}" +
-                    $"\r\n\r\nmod = {Modulus}\r\narg = {Angle}\r\n" + DraftBox.Text;
+            AddDraft($"\r\n{SEP_1} Point {chosen_number} of No.{loop_number} {SEP_2}\r\n" +
+                $"\r\nx = {_xCoor}\r\ny = {_yCoor}\r\n" + $"\r\nmod = {Modulus}\r\narg = {Angle}{message}\r\n");
         }
-        private void DisplayValuesComplex(int xCoor, int yCoor)
+        #endregion
+
+        #region Graphing Buttons
+        private async void ConfirmButton_Click(object sender, EventArgs e) => await Async(() => RunConfirm_Click(sender, e));
+        private async void PreviewButton_Click(object sender, EventArgs e) => await Async(() => RunPreview_Click(sender, e));
+        private async void AllButton_Click(object sender, EventArgs e) => await Async(() =>
         {
-            Complex clicked_value = output_table[xCoor - 1 - x_left, yCoor - 1 - y_up];
-            FunctionDisplay.Text = $"[Re] {clicked_value.real}\r\n[Im] {clicked_value.imaginary}";
-        }
-        private void DisplayValuesReal(int xCoor, int yCoor)
-            => FunctionDisplay.Text = Output_table[xCoor - 1 - x_left, yCoor - 1 - y_up].ToString();
-        private void DrawReferenceRectangles(Color color)
-            => CreateGraphics().FillRectangle(new SolidBrush(color), VScrollBarX.Location.X - REF_POS_1, Y_UP_MIC + REF_POS_2,
-                2 * (VScrollBarX.Width + REF_POS_1), VScrollBarX.Height - 2 * REF_POS_2);
-        private void DefaultReference(bool isInitial)
-        {
-            if (!isInitial) Cursor = Cursors.Default;
-            DrawReferenceRectangles(SystemColors.ControlDark);
-            if (!isInitial) VScrollBarX.Enabled = VScrollBarY.Enabled = false;
-        }
-        private void SetReference(object sender, MouseEventArgs e)
-        {
-            Cursor = Cursors.Cross;
-            DrawReferenceRectangles(GetMouseColor(sender, e));
-            VScrollBarX.Enabled = VScrollBarY.Enabled = true;
-        }
-        private static Color GetMouseColor(object sender, EventArgs e)
-        {
-            Bitmap bmp = new(1, 1);
-            Graphics.FromImage(bmp).CopyFromScreen(Cursor.Position, Point.Empty, new Size(1, 1));
-            return bmp.GetPixel(0, 0);
-        }
-        private void ScrollMoving(double xCoor, double yCoor)
-        {
-            VScrollBarX.Value = (int)((VScrollBarX.Maximum - VScrollBarX.Minimum) * (xCoor - scopes[0]) / (scopes[1] - scopes[0]));
-            VScrollBarY.Value = (int)((VScrollBarY.Maximum - VScrollBarY.Minimum) * (yCoor - scopes[3]) / (scopes[2] - scopes[3]));
-        }
-        private void ScrollMoving(int xPos, int yPos)
-            => ScrollMoving(InverseTransform(xPos, yPos, scopes, borders)[0], InverseTransform(xPos, yPos, scopes, borders)[1]);
-        private async void ConfirmButton_Click(object sender, EventArgs e)
-            => await ExecuteAsync(() => RunConfirmButton_Click(sender, e));
-        private async void PreviewButton_Click(object sender, EventArgs e)
-            => await ExecuteAsync(() => RunPreviewButton_Click(sender, e));
-        private async void AllButton_Click(object sender, EventArgs e)
-            => await ExecuteAsync(() => RunAllButton_Click(sender, e));
-        private void RunButtonClick(Action endAction, int xLeft, int xRight, int yUp, int yDown, bool isMain)
+            RunPreview_Click(sender, e);
+            if (error_input) return; // To prevent the emergence of the second error box
+            Invoke((MethodInvoker)(() => { StopTimers(); Thread.Sleep(SLEEP); StartTimers(); })); // Done on the UI Thread
+            RunConfirm_Click(sender, e);
+        });
+        private void RunClick(object sender, EventArgs e, int[] borders, bool isMain, Action endAction)
         {
             try
             {
-                PrepareGraphing();
-                PrepareScopes(xLeft, xRight, yUp, yDown, isMain);
-                SetTDSB();
-                DisplayOnScreen();
+                Graph_DoubleClick(sender, e);
+                SetTextboxButtonReadOnly(true);
+
+                pixel_number = segment_number = export_number = 0;
+                error_input = error_address = is_checking = false;
+                clicked = true; loop_number++;
+
+                PrepareSetDisplay(borders, isMain);
                 endAction();
             }
-            catch (Exception) { ErrorBox("THE INPUT IS IN A WRONG FORMAT."); }
-        }
-        private void RunConfirmButton_Click(object sender, EventArgs e)
-            => RunButtonClick(EndMacro, X_LEFT_MAC, X_RIGHT_MAC, Y_UP_MAC, Y_DOWN_MAC, true);
-        private void RunPreviewButton_Click(object sender, EventArgs e)
-            => RunButtonClick(EndMicro, X_LEFT_MIC, X_RIGHT_MIC, Y_UP_MIC, Y_DOWN_MIC, false);
-        private void RunAllButton_Click(object sender, EventArgs e)
-        {
-            try
+            catch (Exception) { InputErrorBox(sender, e, WRONG_FORMAT); }
+            finally
             {
-                PrepareGraphing();
-                PrepareScopes(X_LEFT_MIC, X_RIGHT_MIC, Y_UP_MIC, Y_DOWN_MIC, false);
-                SetTDSB();
-                DisplayOnScreen();
-                MiddleAll();
-                PrepareScopes(X_LEFT_MAC, X_RIGHT_MAC, Y_UP_MAC, Y_DOWN_MAC, true);
-                SetTDSB();
-                DisplayOnScreen();
-                EndMacro();
+                if (error_input) StopTimers();
+                SetTextboxButtonReadOnly(false); // Necessary to revive the controls after errors
+                SetScrollBars(false);
+                PictureWait.Visible = false;
+                GC.Collect(); // Releasing the unused memory, particularly those used for parenthesis splitting
             }
-            catch (Exception) { ErrorBox("THE INPUT IS IN A WRONG FORMAT."); }
         }
-        private async Task ExecuteAsync(Action action)
+        private void RunConfirm_Click(object sender, EventArgs e) => RunClick(sender, e, GetBorders(1), true, () => Ending(MACRO));
+        private void RunPreview_Click(object sender, EventArgs e) => RunClick(sender, e, GetBorders(2), false, () => Ending(MICRO));
+        //
+        private async Task Async(Action runClick)
         {
             BlockInput(true);
-            PrepareAsync();
-            await Task.Run(() =>
-            {
-                Thread.CurrentThread.Priority = ThreadPriority.Highest;
-                action();
-            });
-            RunCopyToClipboard();
+            if (NoInput()) return;
+            Clipboard.SetText(InputString.Text); // Invoked if !NoInput()
+            StartTimers();
+            await Task.Run(() => { Thread.CurrentThread.Priority = ThreadPriority.Highest; runClick(); });
             BlockInput(false);
         }
-        private void PrepareAsync()
+        private void StartTimers()
         {
-            elapsedSeconds = 0;
-            TimeDisplay.Text = "0s";
-            if (!String.IsNullOrEmpty(InputString.Text))
-            {
-                DisplayTimer.Start(); WaitTimer.Start(); GraphTimer.Start();
-                TimeNow = DateTime.Now;
-                waiting = false;
-            }
-            else PointNumDisplay.Text = "0";
-        }
-        private void CopyToClipboard()
-        {
-            if (String.IsNullOrEmpty(InputString.Text)) return;
-            Clipboard.SetText(InputString.Text);
-        }
-        private void RunCopyToClipboard()
-        {
-            // Ensure clipboard operation is done on the UI thread
-            if (InvokeRequired) Invoke((MethodInvoker)delegate { CopyToClipboard(); });
-            else CopyToClipboard();
-        }
-        private void PrepareGraphing()
-        {
-            if (String.IsNullOrEmpty(InputString.Text)) return;
-            RestoreMelancholy();
-            DisableControls();
-            point_number = times = export_number = 0;
-            address_error = is_checking = text_changed = false;
-            clicked = true; plot_loop++;
-        }
-        private static void PrepareScopes(int xLeft, int xRight, int yUp, int yDown, bool isMain)
-        { is_main = isMain; x_left = xLeft; x_right = xRight; y_up = yUp; y_down = yDown; }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private void DisplayOnScreen()
-        {
-            if (String.IsNullOrEmpty(InputString.Text)) return;
-            string[] split = MyString.SplitByChars(RecoverMultiply.BeautifyInput(InputString.Text, complex_mode), new char[] { '|' });
-            for (int loops = 0, length = split.Length; loops < length; loops++)
-            {
-                string splitLoops = split[loops];
-                bool temp = !MyString.ContainsAny(splitLoops, new string[] { "Loop", "loop" }) && !complex_mode;
-                if (MyString.ContainsAny(splitLoops, new string[] { "Func", "func" }) && temp) DisplayFunction(splitLoops);
-                else if (MyString.ContainsAny(splitLoops, new string[] { "Polar", "polar" }) && temp) DisplayPolar(splitLoops);
-                else if (MyString.ContainsAny(splitLoops, new string[] { "Param", "param" }) && temp) DisplayParam(splitLoops);
-                else if (MyString.ContainsAny(splitLoops, new string[] { "Loop", "loop" })) DisplayLoop(splitLoops);
-                else DisplayPro(splitLoops);
-            }
-        }
-        private void TimeDraft(string mode, int plotLoop)
-        {
-            TimeDisplay.Text = $"{TimeCount:hh\\:mm\\:ss\\.fff}";
-            if (!drafted) DraftBox.Text = String.Empty; drafted = true;
-            DraftBox.Text = $"\r\n>>>> {plotLoop}_{mode} <<<<\r\n\r\n{InputString.Text}\r\n\r\n" +
-                $"Pixels: {PointNumDisplay.Text}\r\nDuration: {TimeDisplay.Text}\r\n" + DraftBox.Text;
-        }
-        private void MiddleAll()
-        {
-            GraphTimer.Stop();
-            TimeCount = DateTime.Now - TimeNow;
-            TimeDraft("MICRO", plot_loop);
-            plot_loop++;
-            GraphTimer.Start();
+            display_elapsed = 0;
+            SetText(TimeDisplay, "0s");
+            is_flashing = false; // Ensuring deferred emergence of the hourglass
+
+            DisplayTimer.Start(); WaitTimer.Start(); GraphTimer.Start();
             TimeNow = DateTime.Now;
         }
-        private void EndProcess(string mode, int plotLoop, bool updateCaption)
+        private static void StopTimers()
         {
-            ActivateControls();
-            main_drawn = updateCaption;
-            if (main_drawn) CaptionBox.Text = $"{InputString.Text}\r\n" + CaptionBox.Text;
-            TimeDraft(mode, plotLoop);
-            InputString.Focus(); InputString.SelectionStart = InputString.Text.Length;
-            if (auto_export && !address_error) RunStoreButton_Click();
-        }
-        private void EndMicro() => EndProcess("MICRO", plot_loop, false);
-        private void EndMacro() => EndProcess("MACRO", plot_loop, true);
-        private void SetTextboxButton(bool readOnly)
-        {
-            TextBox[] textBoxes = new[] 
-            { InputString, GeneralInput, X_Left, X_Right, Y_Left, Y_Right, ThickInput, DenseInput, AddressInput };
-            foreach (TextBox textBox in textBoxes) textBox.ReadOnly = readOnly;
-            ConfirmButton.Enabled = PreviewButton.Enabled = AllButton.Enabled = !readOnly;
-            activate_mousemove = !readOnly; commence_waiting = readOnly;
-        }
-        private void DisableControls() => SetTextboxButton(true);
-        private void ActivateControls()
-        {
-            DisplayTimer.Stop(); WaitTimer.Stop(); GraphTimer.Stop(); // These shall be here
+            DisplayTimer.Stop(); WaitTimer.Stop(); GraphTimer.Stop();
             TimeCount = DateTime.Now - TimeNow;
-            SetTextboxButton(false);
-            PictureWait.Visible = VScrollBarX.Enabled = VScrollBarY.Enabled = false;
-            GC.Collect();
         }
-        private void ErrorBox(string message)
+        private void SetTextboxButtonReadOnly(bool readOnly)
         {
-            if (!is_checking) clicked = false;
-            ExceptionMessageBox.Show(message +
-                "\r\nCommon mistakes include:" +
-                "\r\n\r\n1. Misspelling of function/variable names;" +
-                "\r\n2. Incorrect grammar of special functions;" +
-                "\r\n3. Excess or deficiency of characters;" +
-                "\r\n4. Real/Complex mode confusion;", 450, 300);
-            if (!is_checking) ActivateControls();
+            TextBox[] textBoxes = { InputString, GeneralInput, X_Left, X_Right, Y_Left, Y_Right, ThickInput, DenseInput, AddressInput };
+            foreach (var tbx in textBoxes) tbx.ReadOnly = readOnly;
+            Button[] buttons = { ConfirmButton, PreviewButton, AllButton };
+            foreach (var btn in buttons) btn.Enabled = !readOnly;
+            activate_mouse = !readOnly;
         }
-        private void ExportButton_Click(object sender, EventArgs e)
-        { RestoreMelancholy(); RunExportButton_Click(); }
-        private void StoreButton_Click(object sender, EventArgs e)
-        { RestoreMelancholy(); RunStoreButton_Click(); }
-        private void RunExportButton_Click() => HandleExportOrStore(ExportGraph, "Snapshot saved at");
-        private void RunStoreButton_Click() => HandleExportOrStore(ExportHistory, "History stored at");
-        private void HandleExportOrStore(Action exportAction, string messagePrefix)
+        private void PrepareSetDisplay(int[] borders, bool isMain)
+        {
+            (x_left, x_right, y_up, y_down, is_main) = (borders[0], borders[1], borders[2], borders[3], isMain);
+            SetThicknessDensenessScopesBorders();
+            DisplayOnScreen();
+        }
+        private void Ending(string mode)
+        {
+            StopTimers();
+            if (is_main) SetText(CaptionBox, $"{InputString.Text}\r\n" + CaptionBox.Text);
+
+            SetText(TimeDisplay, $"{TimeCount:hh\\:mm\\:ss\\.fff}");
+            AddDraft($"\r\n{SEP} No.{loop_number} [{mode}] {SEP}\r\n" + $"\r\n{InputString.Text}\r\n" +
+                $"\r\nPixels: {PointNumDisplay.Text}\r\nDuration: {TimeDisplay.Text}\r\n");
+
+            InputString_Focus();
+            if (is_auto && !error_address) RunStore();
+        }
+        #endregion
+
+        #region Export & Storage Buttons
+        private void ExportButton_Click(object sender, EventArgs e) { Graph_DoubleClick(sender, e); RunExport(); }
+        private void StoreButton_Click(object sender, EventArgs e) { Graph_DoubleClick(sender, e); RunStore(); }
+        private void RunExport() => HandleExportStore(ExportGraph, REMIND_EXPORT);
+        private void RunStore() => HandleExportStore(StoreHistory, REMIND_STORE);
+        //
+        private void HandleExportStore(Action exportStoreHandler, string prefix)
         {
             try
             {
-                if (String.IsNullOrEmpty(AddressInput.Text)) AddressInput.Text = ADDRESS_DEFAULT;
-                exportAction();
-                if (!drafted) DraftBox.Text = String.Empty;
-                DraftBox.Text = $"\r\n{messagePrefix} \r\n{DateTime.Now:HH_mm_ss}\r\n" + DraftBox.Text;
-                drafted = true;
+                FillEmpty(AddressInput, ADDRESS_DEFAULT);
+                exportStoreHandler();
+                AddDraft($"\r\n{prefix}\r\n{DateTime.Now:HH_mm_ss}\r\n");
             }
-            catch (Exception)
-            {
-                clicked = false; address_error = true;
-                ExceptionMessageBox.Show("THE ADDRESS DOES NOT EXIST." +
-                    "\r\nCommon mistakes include:" +
-                    "\r\n\r\n1. Files not created beforehand;" +
-                    "\r\n2. The address ending with \\;" +
-                    "\r\n3. The address quoted automatically;" +
-                    "\r\n4. The file storage being full;", 450, 300);
-            }
+            catch (Exception) { error_address = true; GetExportStoreErrorBox(); }
+        }
+        private string GetFileName(string suffix)
+        {
+            DateTime Date = DateTime.Now;
+            return $@"{AddressInput.Text}\{Date:yyyy}_{Date.DayOfYear}_{Date:HH_mm_ss}_{suffix}";
         }
         private void ExportGraph()
         {
             export_number++;
-            Bitmap bmp = new(Width - 22, Height - 55);
-            Graphics g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(Left + 11, Top + 45, 0, 0, bmp.Size);
-            bmp.Save($@"{AddressInput.Text}\{DateTime.Now:yyyy}_{DateTime.Now.DayOfYear}_{DateTime.Now:HH}_{DateTime.Now:mm}_{DateTime.Now:ss}_No.{export_number}.png");
+            Graphics.FromImage(bmp_screen).CopyFromScreen(Left + LEFT_SUPP, Top + TOP_SUPP, 0, 0, bmp_screen.Size);
+            bmp_screen.Save(GetFileName($"No.{export_number}.png"));
         }
-        private void ExportHistory()
+        private void StoreHistory()
         {
-            StreamWriter writer = new($@"{AddressInput.Text}\{DateTime.Now:yyyy}_{DateTime.Now.DayOfYear}_{DateTime.Now:HH}_{DateTime.Now:mm}_{DateTime.Now:ss}_stockpile.txt");
+            using StreamWriter writer = new(GetFileName($"{STOCKPILE}.txt")); // "using" should not be removed
             writer.Write(DraftBox.Text);
         }
         #endregion
 
-        #region Keys
-        private void FalseColor()
+        #region Checking Core & Shortcuts
+        private void InputErrorBox(object sender, EventArgs e, string message)
         {
-            InputString.BackColor = InputLabel.ForeColor = ERROR_RED;
-            PictureIncorrect.Visible = true; PictureCorrect.Visible = false;
+            error_input = true;
+            bool temp = ProcessingGraphics();
+            InputString.ReadOnly = false; CheckAll(sender, e); InputString.ReadOnly = temp; // Sensitive
+            GetInputErrorBox(message);
         }
-        private void CheckValidity() => CheckValidityCore(FalseColor);
-        private void CheckValidityDetailed() => CheckValidityCore(() => ErrorBox("THE INPUT IS IN A WRONG FORMAT."));
         private void CheckValidityCore(Action errorHandler)
         {
             try
             {
                 is_checking = true;
-                PrepareScopes(X_LEFT_CHECK, X_RIGHT_CHECK, Y_UP_CHECK, Y_DOWN_CHECK, false);
-                SetTDSB();
-                if (String.IsNullOrEmpty(InputString.Text))
-                {
-                    InputString.BackColor = FOCUS_GRAY;
-                    InputLabel.ForeColor = Color.White;
-                    PictureIncorrect.Visible = PictureCorrect.Visible = false;
-                }
-                else
-                {
-                    DisplayOnScreen();
-                    InputString.BackColor = InputLabel.ForeColor = CORRECT_GREEN;
-                    PictureIncorrect.Visible = false; PictureCorrect.Visible = true;
-                }
-                activate_mousemove = false;
-                VScrollBarX.Enabled = VScrollBarY.Enabled = false;
+                PrepareSetDisplay(GetBorders(3), false);
+
+                bool noInput = NoInput(); // Should not return immediately if NoInput()
+                InputLabel.ForeColor = noInput ? Color.White : CORRECT_GREEN;
+                InputString.BackColor = noInput ? FOCUS_GRAY : CORRECT_GREEN;
+                PictureCorrect.Visible = !noInput; PictureIncorrect.Visible = false;
             }
             catch (Exception) { errorHandler(); }
         }
-        private void MiniChecks(Control Ctrl, Control ctrl)
-        {
-            try
-            {
-                if (InputString.ReadOnly) return;
-                if (String.IsNullOrEmpty(Ctrl.Text)) ctrl.ForeColor = Color.White;
-                else
-                {
-                    double temp = RealSub.Obtain(Ctrl.Text); // For checking
-                    ctrl.ForeColor = CORRECT_GREEN;
-                }
-            }
-            catch (Exception) { ctrl.ForeColor = ERROR_RED; }
-        }
         private void CheckAll(object sender, EventArgs e)
         {
-            InputString_DoubleClick(sender, e);
-            GeneralInput_DoubleClick(sender, e);
-            X_Left_DoubleClick(sender, e);
-            X_Right_DoubleClick(sender, e);
-            Y_Left_DoubleClick(sender, e);
-            Y_Right_DoubleClick(sender, e);
-            ThickInput_DoubleClick(sender, e);
-            DenseInput_DoubleClick(sender, e);
-            AddressInput_DoubleClick(sender, e);
+            Action<object, EventArgs>[] checkActions =
+            {
+                GeneralInput_DoubleClick,
+                Details_TextChanged, // Sensitive position
+                InputString_DoubleClick,
+                ThickInput_DoubleClick,
+                DenseInput_DoubleClick,
+                AddressInput_DoubleClick
+            };
+            foreach (var action in checkActions) action(sender, e);
         }
-        private void AutoCheckComplex()
-        {
-            string input = InputString.Text;
-            input = MyString.ReplaceComplexConfusion(input);
-            CheckComplex.Checked = MyString.ContainsAny(input, new char[] { 'z', 'Z' });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void BarSomeKeys(object sender, KeyPressEventArgs e)
-        { if (BARREDCHARS.Contains(e.KeyChar)) e.Handled = true; }
-        private static void AutoKeyDown(TextBox ctrl, KeyEventArgs e)
-        {
-            if (ctrl.ReadOnly) return;
-            int caretPosition = ctrl.SelectionStart; // This is a necessary intermediate variable
-            if (!MyString.CheckParenthesis(ctrl.Text.AsSpan(caretPosition, ctrl.SelectionLength)))
-                SelectSuppress(ctrl, e, caretPosition, 0);
-            else if (e.KeyCode == Keys.D9 && (ModifierKeys & Keys.Shift) != 0)
-            {
-                if (ctrl.SelectionLength == 0)
-                {
-                    ctrl.Text = ctrl.Text.Insert(caretPosition, "()");
-                    SelectSuppress(ctrl, e, caretPosition, 1);
-                }
-                else
-                {
-                    string selectedText = ctrl.Text.Substring(caretPosition, ctrl.SelectionLength);
-                    ctrl.Text = ctrl.Text.Remove(caretPosition, ctrl.SelectionLength).Insert(caretPosition, "(" + selectedText + ")");
-                    SelectSuppress(ctrl, e, caretPosition, selectedText.Length + 2);
-                }
-            }
-            else if (e.KeyCode == Keys.D0 && (ModifierKeys & Keys.Shift) != 0)
-            {
-                if (ctrl.SelectionLength > 0) SelectSuppress(ctrl, e, caretPosition, 0);
-                else if (caretPosition == 0) SelectSuppress(ctrl, e, caretPosition, 0);
-                else if (ctrl.Text[caretPosition - 1] == '(') SelectSuppress(ctrl, e, caretPosition, 1);
-            }
-            else if (e.KeyCode == Keys.Oemcomma)
-            {
-                ctrl.Text = ctrl.Text.Insert(caretPosition, ", ");
-                SelectSuppress(ctrl, e, caretPosition, 2);
-            }
-            else if (e.KeyCode == Keys.OemPipe)
-            {
-                ctrl.Text = ctrl.Text.Insert(caretPosition, " | ");
-                SelectSuppress(ctrl, e, caretPosition, 3);
-            }
-            else if (e.KeyCode == Keys.Back)
-            {
-                if (caretPosition == 0 || !MyString.CheckParenthesis(ctrl.Text) || ctrl.SelectionLength > 0) return;
-                else if (ctrl.Text[caretPosition - 1] == '(')
-                {
-                    if (ctrl.Text[caretPosition] == ')') ctrl.Text = ctrl.Text.Remove(caretPosition - 1, 2);
-                    SelectSuppress(ctrl, e, caretPosition, -1);
-                }
-                else if (ctrl.Text[caretPosition - 1] == ')') SelectSuppress(ctrl, e, caretPosition, -1);
-            }
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SelectSuppress(TextBox ctrl, KeyEventArgs e, int caretPosition, int caretMove)
-        {
-            ctrl.SelectionStart = caretPosition + caretMove;
-            e.SuppressKeyPress = true;
-        }
+        //
         private void Graph_KeyUp(object sender, KeyEventArgs e)
         {
             HandleModifierKeys(e, false);
-            if (suppressKeyUp) return;
+            if (suppress_key_up) return; // Should not merge with the next line
             if (HandleSpecialKeys(e)) return;
             HandleCtrlCombination(sender, e);
         }
         private void Graph_KeyDown(object sender, KeyEventArgs e)
         {
             HandleModifierKeys(e, true);
-            if (sftPressed && e.KeyCode == Keys.Back && !InputString.ReadOnly)
-                ExecuteWithSuppression(() => SubtitleBox_DoubleClick(sender, e), e);
-            else if (e.KeyCode == Keys.Delete) ExecuteWithSuppression(null, e);
+            if (!NoInput() && !ProcessingGraphics() && sft_pressed && e.KeyCode == Keys.Back)
+                ExecuteSuppress(() =>
+                {
+                    AddDraft("\r\nDeleted: " + InputString.Text + "\r\n");
+                    SetText(InputString, String.Empty);
+                    InputString.Focus();
+                }, e);
+            else if (e.KeyCode == Keys.Delete) ExecuteSuppress(null, e); // Banning the original deletion
         }
+
         private static void HandleModifierKeys(KeyEventArgs e, bool isKeyDown)
         {
-            if (e.KeyCode == Keys.ControlKey) { ctrlPressed = isKeyDown; e.Handled = true; }
-            else if (e.KeyCode == Keys.ShiftKey) { sftPressed = isKeyDown; e.Handled = true; }
+            if (e.KeyCode == Keys.ControlKey) { ctrl_pressed = isKeyDown; e.Handled = true; }
+            else if (e.KeyCode == Keys.ShiftKey) { sft_pressed = isKeyDown; e.Handled = true; }
         }
         private bool HandleSpecialKeys(KeyEventArgs e)
         {
             switch (e.KeyCode)
             {
-                case Keys.Escape: ExecuteWithSuppression(() => Close(), e); return true;
-                case Keys.Oemtilde: ExecuteWithSuppression(() => PlayOrPause(), e); return true;
-                case Keys.Delete: ExecuteWithSuppression(() => PressDelete(e), e); return true;
+                case Keys.Escape: ExecuteSuppress(Close, e); return true;
+                case Keys.Oemtilde: ExecuteSuppress(() => PicturePlay_Click(null, e), e); return true;
+                case Keys.Delete: ExecuteSuppress(() => { Graph_DoubleClick(null, e); Delete_Click(e); }, e); return true;
                 default: return false;
             }
         }
         private void HandleCtrlCombination(object sender, KeyEventArgs e)
         {
-            if (!ctrlPressed) return;
-#pragma warning disable CS8600 // Converting null literal or possible null value to non-nullable type.
-            Action action = e.KeyCode switch
+            if (!ctrl_pressed) return;
+            void restoreDefault(object sender, KeyEventArgs e)
             {
+                RecoverInput(); ComboColoring.SelectedIndex = 4; ComboContour.SelectedIndex = 1;
+
+                CheckBox[] checkFalse = { CheckAuto, CheckSwap, CheckPoints, CheckShade, CheckRetain };
+                foreach (var cbx in checkFalse) cbx.Checked = false;
+                CheckBox[] checkTrue = { CheckEdit, CheckComplex, CheckCoor };
+                foreach (var cbx in checkTrue) cbx.Checked = true;
+            }
+            Action? shortcutHandler = e.KeyCode switch
+            {
+                Keys.K => () => StoreButton_Click(sender, e),
+                Keys.S => () => ExportButton_Click(sender, e),
+                Keys.R => () => Graph_DoubleClick(sender, e),
                 Keys.D3 => () => ClearButton_Click(sender, e),
                 Keys.D2 => () => PictureLogo_DoubleClick(sender, e),
                 Keys.OemQuestion => () => TitleLabel_DoubleClick(sender, e),
-                Keys.P when PreviewButton.Enabled => () => PreviewButton_Click(sender, e),
-                Keys.G when ConfirmButton.Enabled => () => ConfirmButton_Click(sender, e),
-                Keys.B when !InputString.ReadOnly => () => AllButton_Click(sender, e),
-                Keys.S when ExportButton.Enabled => () => ExportButton_Click(sender, e),
-                Keys.K => () => StoreButton_Click(sender, e),
-                Keys.R => () => Graph_DoubleClick(sender, e),
-                Keys.D => () => RestoreDefault(),
-                Keys.C when sftPressed && !InputString.ReadOnly => () => CheckAll(sender, e),
+                Keys.D when !ProcessingGraphics() => () => restoreDefault(sender, e),
+                Keys.B when !ProcessingGraphics() => () => AllButton_Click(sender, e),
+                Keys.P when !ProcessingGraphics() => () => PreviewButton_Click(sender, e),
+                Keys.G when !ProcessingGraphics() => () => ConfirmButton_Click(sender, e),
+                Keys.C when !ProcessingGraphics() && sft_pressed => () => CheckAll(sender, e),
                 _ => null
             };
-#pragma warning restore CS8600 // Converting null literal or possible null value to non-nullable type.
-            if (action != null) ExecuteWithSuppression(action, e);
+            if (shortcutHandler != null) ExecuteSuppress(shortcutHandler, e);
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ExecuteWithSuppression(Action action, KeyEventArgs e)
+        private static void ExecuteSuppress(Action? action, KeyEventArgs e)
         {
-            suppressKeyUp = true;
+            suppress_key_up = true;
             action?.Invoke();
-            e.Handled = true;
-            e.SuppressKeyPress = true;
-            suppressKeyUp = false;
-        }
-        private void PressDelete(KeyEventArgs e)
-        {
-            RestoreMelancholy();
-            DeleteMain_Click(this, e);
-            DeletePreview_Click(this, e);
-        }
-        private void Graph_DoubleClick(object sender, EventArgs e) => RestoreMelancholy();
-        private void RestoreMelancholy()
-        {
-            InputString.BackColor = FOCUS_GRAY;
-            Label[] labels = new[] { InputLabel, AtLabel, GeneralLabel, DetailLabel, X_Scope, Y_Scope, ThickLabel, DenseLabel, ExampleLabel, FunctionLabel, ModeLabel, ContourLabel };
-            foreach (Label label in labels) label.ForeColor = Color.White;
-            PictureIncorrect.Visible = PictureCorrect.Visible = false;
-            is_checking = false;
-        }
-        private void RestoreDefault()
-        {
-            InputString.Text = INPUT_DEFAULT;
-            InputString.SelectionStart = InputString.Text.Length;
-            GeneralInput.Text = GENERAL_DEFAULT;
-            ThickInput.Text = THICKNESS_DEFAULT;
-            DenseInput.Text = DENSENESS_DEFAULT;
-            AddressInput.Text = ADDRESS_DEFAULT;
-            ComboColoring.SelectedIndex = 4;
-            ComboContour.SelectedIndex = 1;
-            CheckAuto.Checked = CheckSwap.Checked = CheckPoints.Checked = CheckShade.Checked = CheckRetain.Checked = false;
-            CheckEdit.Checked = CheckComplex.Checked = CheckCoor.Checked = true;
+            e.Handled = e.SuppressKeyPress = true;
+            suppress_key_up = false;
         }
         #endregion
 
-        #region Micellaneous
-        private void ComboColoring_SelectedIndexChanged(object sender, EventArgs e)
-            => color_mode = ComboColoring.SelectedIndex + 1;
-        private void ComboContour_SelectedIndexChanged(object sender, EventArgs e)
-            => contour_mode = ComboContour.SelectedIndex + 1;
-        private void ComboExamples_SelectedIndexChanged(object sender, EventArgs e)
+        #region Dialogs
+        private static void GetMusicClickErrorBox(string message)
+            => MessageBox.Show($"Error: Could not find embedded resource for {message}.");
+        private static void ShowBoxBase(Action<string, int, int> showMessage, string heading, string[] contents, int feed)
         {
-            if (ComboExamples.SelectedIndex == -1 || InputString.ReadOnly || 
-                String.IsNullOrEmpty(ComboExamples.SelectedItem.ToString())) return;
-            InputString.Text = ComboExamples.SelectedItem.ToString();
-            CheckComplex.Checked = ComboExamples.SelectedIndex < 8;
-            SetValuesForSelectedIndex(ComboExamples.SelectedIndex);
-            DeleteMain_Click(this, e);
-            DeletePreview_Click(this, e);
-            ComboExamples.SelectedIndex = -1;
-            InputString.Focus();
-            InputString.SelectionStart = InputString.Text.Length;
+            string content = heading, feeder = String.Concat(Enumerable.Repeat("\r\n", feed));
+            for (int i = 0; i < contents.Length; i++) content += $"{feeder}{i + 1}. {contents[i]}";
+            showMessage(content + "\r\n", 450, 300);
         }
+        private static void ShowErrorBox(string message, string[] contents)
+            => ShowBoxBase(MyMessageBox.ShowException, message + MISTAKES_HEAD + "\r\n", contents, 1);
+        private static void GetInputErrorBox(string message) => ShowErrorBox(message, new string[]
+        {
+            "Misspelling of function/variable names.",
+            "Incorrect grammar of special functions.",
+            "Excess or deficiency of characters.",
+            "Real/Complex mode confusion.",
+            "Invalid other parameters."
+        });
+        private static void GetExportStoreErrorBox() => ShowErrorBox(WRONG_ADDRESS, new string[]
+        {
+            "Files not created beforehand.",
+            "The address ending with \\.",
+            "The address quoted automatically.",
+            "The file storage being full."
+        });
+        //
+        private static string GetComment(string input) => $"# {input}";
+        private static string GetManual()
+        {
+            string content = $"DESIGNER: Fraljimetry\r\nDATE: {DATE}\r\nLOCATION: Xi'an, China";
+            content += "\r\n\r\nThis software was developed in Visual Studio 2022, written in C#, " +
+                "to visualize real/complex functions and equations with no more than two variables." +
+                "\r\n\r\nTo bolster artistry and practicality, numerous modes are rendered, " +
+                "making it possible to generate images tailored for users of various ends." +
+                "\r\n\r\nNote: I wish the definitions of these operations are self-evident if you try yourself or refer to the examples.";
+
+            static string subTitleContent(string subtitle, string cont) => $"\r\n\r\n{_SEP} {subtitle} {_SEP}" + cont;
+            content += subTitleContent("ELEMENTS",
+                "\r\n\r\n+ - * / ^ ( )" +
+                "\r\n\r\nSin, Cos, Tan, Sinh, Cosh, Tanh," +
+                "\r\nArcsin & Asin, Arccos & Acos, Arctan & Atan," +
+                "\r\nArsinh & Asinh, Arcosh & Acosh, Artanh & Atanh," +
+                "\r\n\r\nLog & Ln, Exp, Sqrt, Abs (f(x,y) & f(z))" +
+                $"\r\n\r\nConjugate & Conj (f(z)), e(f(z)){TAB}{GetComment("e(z) := exp (2*pi*i*z).")}");
+            content += subTitleContent("COMBINATORICS",
+                "\r\n\r\nFloor, Ceil, Round, Sign & Sgn (double a)" +
+                "\r\n\r\nMod (double a, double n), nCr, nPr (int n, int r)" +
+                "\r\n\r\nMax, Min (double a, double b, ...), Factorial & Fact (int n)");
+            content += subTitleContent("SPECIALTIES",
+                $"\r\n\r\n{GetComment("D&C := double & Complex.")}" +
+                "\r\n\r\nF (D&C a, D&C b, D&C c, f(x,y) & f(z)) & " +
+                "\r\nF (D&C a, D&C b, D&C c, f(x,y) & f(z), int n)" +
+                $"\r\n{GetComment("HyperGeometric Series (case-sensitive).")}" +
+                "\r\n\r\nGamma & Ga (f(x,y) & f(z)) & " +
+                "\r\nGamma & Ga (f(x,y) & f(z), int n)" +
+                "\r\n\r\nBeta (f(x,y) & f(z), g(x,y) & g(z)) & " +
+                "\r\nBeta (f(x,y) & f(z), g(x,y) & g(z), int n)" +
+                "\r\n\r\nZeta (f(x,y) & f(z)) & " +
+                $"\r\nZeta (f(x,y) & f(z), int n){TAB}{GetComment("This is a mess for n too large.")}");
+            content += subTitleContent("REPETITIONS",
+                $"\r\n\r\n{GetComment("Capitalizations represent substitutions of variables.")}" +
+                "\r\n\r\nSum (f(x,y,k) & f(z,k), k, int a, int b)" +
+                "\r\nProduct & Prod (f(x,y,k) & f(z,k), k, int a, int b)" +
+                "\r\n\r\nIterate1 (f(x,y,X,k), g(x,y), k, int a, int b)" +
+                "\r\nIterate2 (f1(x,y,X,Y,k), f2(...), g1(x,y), g2(...), k, int a, int b, 1&2)" +
+                "\r\nIterate (f(z,Z,k), g(z), k, int a, int b)" +
+                $"\r\n{GetComment("g: initial values; f: iterations.")}" +
+                "\r\n\r\nComposite1 & Comp1(f(x,y), g1(x,y,X), ... , gn(x,y,X))" +
+                $"\r\nComposite2 & Comp2\r\n{TAB}(f1(x,y), f2(...), g1(x,y,X,Y), h1(...), ... , gn(...), hn(...), 1&2)" +
+                "\r\nComposite & Comp (f(z), g1(z,Z), ... , gn(z,Z))" +
+                $"\r\n{GetComment("f: initial values; g: compositions.")}");
+            content += subTitleContent("PLANAR CURVES",
+                "\r\n\r\nFunc (f(x)) & " +
+                "\r\nFunc (f(x), double increment) & " +
+                "\r\nFunc (f(x), double a, double b) & " +
+                "\r\nFunc (f(x), double a, double b, double increment)" +
+                "\r\n\r\nPolar (f(θ), θ, double a, double b) & " +
+                "\r\nPolar (f(θ), θ, double a, double b, double increment)" +
+                "\r\n\r\nParam (f(u), g(u), u, double a, double b) & " +
+                "\r\nParam (f(u), g(u), u, double a, double b, double increment)");
+            content += subTitleContent("RECURSIONS",
+                $"\r\n\r\n{GetComment("These methods should be combined with all above.")}" +
+                "\r\n\r\nLoop (Input(k), k, int a, int b)" +
+                "\r\n\r\nIterateLoop (f(x,y,X,k), g(x,y), k, int a, int b, h(x,y,X)) & " +
+                "\r\nIterateLoop (f(z,Z,k), g(z), k, int a, int b)" +
+                $"\r\n{GetComment("Displaying each roll of iteration.")}" +
+                $"\r\n\r\n... | ... | ...{TAB}{GetComment("Displaying one by one.")}");
+            content += subTitleContent("CONSTANTS", "\r\n\r\npi & p, e, gamma & ga & g, i");
+            content += subTitleContent("SHORTCUTS", "\r\n");
+
+            static string getShortcuts(string key, int blank, string meaning) => $"\r\n[{key}]" + new string('\t', blank) + meaning + ";";
+            content += getShortcuts("Control + P", 2, "Graph in the MicroBox");
+            content += getShortcuts("Control + G", 2, "Graph in the MacroBox");
+            content += getShortcuts("Control + B", 2, "Graph in both regions");
+            content += getShortcuts("Control + S", 2, "Save as a snapshot");
+            content += getShortcuts("Control + K", 2, "Save the history as a .txt");
+            content += getShortcuts("Control + Shift + C", 1, "Check all inputs");
+            content += getShortcuts("Control + R", 2, "Erase all checks");
+            content += getShortcuts("Control + D", 2, "Restore to default");
+            content += getShortcuts("Shift + Back", 2, "Clear the InputBox");
+            content += getShortcuts("Control + D2", 2, "View Fralji's profile");
+            content += getShortcuts("Control + D3", 2, "Clear all ReadOnly controls");
+            content += getShortcuts("Control + OemQuestion", 1, "See the manual");
+            content += getShortcuts("Oemtilde", 2, "Play/pause the music");
+            content += getShortcuts("Delete", 3, "Clear both regions");
+            content += getShortcuts("Escape", 3, "Close Fraljiculator");
+            return content + "\r\n\r\nClick [Tab] to witness the process of control design.";
+        }
+        private static string AddContact(string platform, string account, string note)
+            => $"\r\n\r\n{platform}: {account}" + (note != String.Empty ? (new string(' ', 4) + GetComment(note)) : note);
+        private static string GetProfile()
+        {
+            string content = "Dear math lovers & mathematicians:" +
+                "\r\n\r\nHi! I'm Fralji, a content creator on Bilibili since July, 2021, right before entering college." +
+                "\r\n\r\nI aim to deliver unique lectures on many branches of mathematics. " +
+                "If you have any problem on the usage of this application, or anything concerning math, please reach to me via:";
+            content += AddContact("Bilibili", "355884223", String.Empty);
+            content += AddContact("Email", "frankjiiiiiiii@gmail.com", String.Empty);
+            content += AddContact("Wechat", "F1r4a2n8k5y7", "recommended");
+            content += AddContact("QQ", "472955101", String.Empty);
+            content += AddContact("Facebook", "Fraljimetry", String.Empty);
+            content += AddContact("Instagram", "shaodaji", "NOT recommended");
+            return content + "\r\n\r\n" + new string(' ', 72) + $"{DATE}";
+        }
+        private void TitleLabel_DoubleClick(object sender, EventArgs e) => MyMessageBox.ShowFormal(GetManual(), 640, 480);
+        private void PictureLogo_DoubleClick(object sender, EventArgs e) => MyMessageBox.ShowFormal(GetProfile(), 600, 450);
+        private static void ShowCustomBox(string title, string[] contents)
+            => ShowBoxBase(MyMessageBox.ShowCustom, $"[{title}]" + new string(' ', 12) + $"{DATE}", contents, 2);
+        //
+        private void InputLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("FORMULA INPUT", new string[]
+        {
+            "Space and enter keys are both OK. Unaccepted keys are banned, removed if pasted from the clipboard.",
+            "Excessive ellipses of multiplication may result in ambiguity. Ex. \"gammax\" will produce a \"max\"."
+        });
+        private void AtLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("SAVING ADDRESS", new string[]
+        {
+            "Create a file for snapshot storage and paste the address here. It will be checked.",
+            "PNG snapshots & history lists will be named in the respective formats: " +
+            "\"yyyy_ddd_hh_mm_ss_No.#\" and \"yyyy_ddd_hh_mm_ss_stockpile\"."
+        });
+        private void GeneralLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("GENERAL SCOPE", new string[]
+        {
+            "The detailed scope effectuates only if the general scope is set to \"0\".",
+            "Any legitimate variable-free algebraic expressions are acceptable, checked as in the input box."
+        });
+        private void DetailLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("DETAILED SCOPE", new string[]
+        {
+            "Reversing the endpoints to create the mirror effect is NOT supported.",
+            "Any legitimate variable-free algebraic expressions are acceptable, checked as in the input box."
+        });
+        private void ThickLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("MAGNITUDE", new string[]
+        {
+            "Representing: (i) Width of planar curves, (ii) Size of special points, (iii) Decay rates of translucence.",
+            "It should be appropriate according to the scale. Examples have been tweaked with much effort."
+        });
+        private void DenseLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("DENSITY", new string[]
+        {
+            "The density refers to:\r\n(i) Density of contours (real & complex),\r\n(ii) Relative speed of planar curves.",
+            "It should be appropriate according to the scale. Examples have been tweaked with much effort."
+        });
+        private void DraftLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("HISTORY LIST", new string[]
+        {
+            "The input will be saved both in this box and in the clipboard.",
+            "Clicked points, along with the time of snapshots & history storage, will also be recorded in detail."
+        });
+
+        private void ExampleLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("EXAMPLES", new string[]
+        {
+            "These examples serve to inform you of the multifarious legitimate grammar.",
+            "Some renderings are elegant while others are chaotic. Elegance take time to explore and appreciate. Enjoy yourself!"
+        });
+        private void FunctionLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("FUNCTIONS", new string[]
+        {
+            "The two combo boxes contain regular and special operations respectively, the latter having complicated grammar.",
+            "Select something in the input box and choose here to substitute your selection."
+        });
+        private void ModeLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("COLORING MODES", new string[]
+        {
+            "The spectrum of colors represents:\r\n(i) Arguments of meromorphic functions," +
+            "\r\n(ii) Values of two-variable functions,\r\n(iii) Parameterizations of planar curves.",
+            "The first three modes have swappable colorations, while the last two do not."
+        });
+        private void ContourLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("CONTOUR MODES", new string[]
+        {
+            "Both options apply to the complex version ONLY, for the contouring of meromorphic functions.",
+            "Only the Polar option admits translucent display, representing the decay rate of modulus."
+        });
+
+        private void PointNumLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("PIXELS", new string[]
+        {
+            "Logging the number of points / line segments in the previous loop, almost proportional to time and iteration.",
+            "Nullity often results from constancy, divergence, or undefinedness."
+        });
+        private void TimeLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("DURATION", new string[]
+        {
+            "The auto snapshot cannot capture updates here on time, but it will be saved in the history list along with the pixels.",
+            "This value is a precious embodiment of optimization, refered for appropriate iterations and others."
+        });
+        private void PreviewLabel_DoubleClick(object sender, EventArgs e) => ShowCustomBox("MICROCOSM", new string[]
+        {
+            "Since graphing cannot pause manually during the process, a preview of results is necessary for time estimation.",
+            "It differs from the main graph only in sharpness. Graphing here is around 20 times faster (less after optimization)."
+        });
+        #endregion
+
+        #region Index Change & Check Change
         private void SetValuesForSelectedIndex(int index)
         {
-            string generalScope;
-            string thickness = "1";
-            string denseness = "1";
-            int colorIndex = 3;
-            bool pointsChecked = false, retainChecked = false, shadeChecked = false;
-            switch (index)
-            {
-                case 0: generalScope = "1.1"; colorIndex = 4; pointsChecked = true; break;
-                case 1: generalScope = "1.2"; colorIndex = 3; break;
-                case 2: generalScope = "1.1"; colorIndex = 2; pointsChecked = true; break;
-                case 3: generalScope = "pi/2"; colorIndex = 4; break;
-                case 4: generalScope = "4"; thickness = "0.1"; colorIndex = 3; shadeChecked = true; break;
-                case 5: generalScope = "3"; break;
-                case 6: generalScope = "0"; X_Left.Text = "-1.6"; X_Right.Text = "0.6"; Y_Left.Text = "-1.1"; Y_Right.Text = "1.1"; break;
-                case 7: generalScope = "2"; colorIndex = 4; shadeChecked = true; break;
-                case 9: generalScope = "4pi"; thickness = "0.1"; colorIndex = 2; pointsChecked = true; break;
-                case 10: generalScope = "2pi"; colorIndex = 4; break;
-                case 11: generalScope = "2.5"; thickness = "0.3"; colorIndex = 1; pointsChecked = true; break;
-                case 12: generalScope = "0"; X_Left.Text = "0"; X_Right.Text = "1"; Y_Left.Text = "0"; Y_Right.Text = "1"; thickness = "0.2"; colorIndex = 0; retainChecked = true; break;
-                case 13: generalScope = "10"; thickness = "0.1"; colorIndex = 1; pointsChecked = true; break;
-                case 14: generalScope = "5"; colorIndex = 1; break;
-                case 15: generalScope = "3"; break;
-                case 16: generalScope = "4"; thickness = "0.05"; colorIndex = 2; pointsChecked = true; break;
-                case 18: generalScope = "5.5"; break;
-                case 19: generalScope = "pi"; thickness = "0.5"; denseness = "10"; colorIndex = 2; break;
-                case 20: generalScope = "3"; colorIndex = 0; break;
-                case 21: generalScope = "1.1"; denseness = "100"; colorIndex = 1; break;
-                case 22: generalScope = "1.1"; thickness = "0.5"; colorIndex = 3; break;
-                case 23: generalScope = "1.1"; thickness = "0.5"; denseness = "10"; retainChecked = true; break;
-                case 24: generalScope = "1.1"; thickness = "0.5"; colorIndex = 3; break;
-                case 25: generalScope = "0"; X_Left.Text = "-0.2"; X_Right.Text = "1.2"; Y_Left.Text = "-0.2"; Y_Right.Text = "1.2"; thickness = "0.5"; colorIndex = 0; retainChecked = true; break;
-                default: ComboExamples.SelectedIndex = -1; return;
-            }
-            GeneralInput.Text = generalScope;
-            ThickInput.Text = thickness;
-            DenseInput.Text = denseness;
-            ComboColoring.SelectedIndex = colorIndex;
-            CheckPoints.Checked = pointsChecked;
-            CheckRetain.Checked = retainChecked;
-            CheckShade.Checked = shadeChecked;
+            int _color = 3; string _general = "1.1", _thick = THICK_DEFAULT, _dense = DENSE_DEFAULT;
+            bool _points = false, _retain = false, _shade = false;
+            int complexL = ReplaceTags.EX_COMPLEX.Length, realL = ReplaceTags.EX_REAL.Length,
+                curveL = ReplaceTags.EX_CURVES.Length;
+
+            InputString.ReadOnly = true; // Necessary
+            void setDetails(string xL, string xR, string yL, string yR)
+            { SetText(X_Left, xL); SetText(X_Right, xR); SetText(Y_Left, yL); SetText(Y_Right, yR); }
+            if (index < complexL)
+                switch (index)
+                {
+                    case 0: _color = 4; _points = true; break;
+                    case 1: _general = "1.2"; break;
+                    case 2: _color = 2; _points = true; break;
+                    case 3: _general = "pi/2"; _color = 4; break;
+                    case 4: _general = "4"; _thick = "0.1"; _shade = true; break;
+                    case 5: _general = "3"; break;
+                    case 6: _general = "0"; setDetails("-1.6", "0.6", "-1.1", "1.1"); break;
+                    case 7: _general = "2"; _color = 4; _shade = true; break;
+                }
+            else if (index > complexL && index < complexL + realL + 1)
+                switch (index - complexL - 1)
+                {
+                    case 0: _general = "4pi"; _thick = "0.1"; _color = 2; _points = true; break;
+                    case 1: _general = "2pi"; _color = 4; break;
+                    case 2: _general = "2.5"; _thick = "0.3"; _color = 1; _points = true; break;
+                    case 3: _general = "0"; setDetails("0", "1", "0", "1"); _thick = "0.2"; _color = 0; _retain = true; break;
+                    case 4: _general = "10"; _thick = "0.1"; _color = 1; _points = true; break;
+                    case 5: _general = "5"; _color = 1; break;
+                    case 6: _general = "3"; break;
+                    case 7: _general = "4"; _thick = "0.05"; _color = 2; _points = true; break;
+                }
+            else if (index > complexL + realL + 1 && index < complexL + realL + curveL + 2)
+                switch (index - complexL - realL - 2)
+                {
+                    case 0: _general = "5.5"; break;
+                    case 1: _general = "pi"; _thick = "0.5"; _dense = "10"; _color = 2; break;
+                    case 2: _general = "3"; _color = 0; break;
+                    case 3: _dense = "100"; _color = 1; break;
+                    case 4: _thick = "0.5"; break;
+                    case 5: _thick = "0.5"; _dense = "10"; _retain = true; break;
+                    case 6: _thick = "0.5"; break;
+                    case 7: _general = "0"; setDetails("-0.2", "1.2", "-0.2", "1.2"); _thick = "0.5"; _color = 0; _retain = true; break;
+                }
+            else ComboExamples_Undo();
+            InputString.ReadOnly = false; // Necessary
+
+            SetText(GeneralInput, _general); SetText(ThickInput, _thick); SetText(DenseInput, _dense);
+            CheckPoints.Checked = _points; CheckRetain.Checked = _retain; CheckShade.Checked = _shade;
+            CheckComplex.Checked = ComboExamples.SelectedIndex < complexL;
+            ComboColoring.SelectedIndex = _color;
         }
-        private void ComboSelectionChanged(string selectedItem)
+        private void Combo_SelectionChanged(string selectedItem)
         {
-            if (InputString.ReadOnly) return;
-            InputString.Text = MyString.Replace(InputString.Text, selectedItem, InputString.SelectionStart, InputString.SelectionStart + InputString.SelectionLength - 1);
-            InputString.SelectionStart += selectedItem.Length - 1;
-            InputString.Focus();
+            if (ProcessingGraphics()) return;
+            SetText(InputString, MyString.Replace(InputString.Text, selectedItem, InputString.SelectionStart,
+                InputString.SelectionStart + InputString.SelectionLength - 1));
+            InputString.Focus(); InputString.SelectionStart--; // Should not place before .Focus()
+        }
+
+        private void ComboExamples_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            string? selection = ComboExamples.SelectedItem?.ToString();
+            if (ProcessingGraphics() || String.IsNullOrEmpty(selection) || ComboExamples.SelectedIndex == -1) return;
+            SetText(InputString, selection);
+            SetValuesForSelectedIndex(ComboExamples.SelectedIndex);
+            ComboExamples_Undo(); // To prevent repetitious call
+            Delete_Click(e);
+            InputString_Focus();
         }
         private void ComboFunctions_SelectedIndexChanged(object sender, EventArgs e)
-            => ComboSelectionChanged(ComboFunctions.SelectedItem.ToString());
+            => Combo_SelectionChanged(ComboFunctions.SelectedItem.ToString());
         private void ComboSpecial_SelectedIndexChanged(object sender, EventArgs e)
-            => ComboSelectionChanged(ComboSpecial.SelectedItem.ToString());
-        private void CheckCoor_CheckedChanged(object sender, EventArgs e) => delete_coordinate = !delete_coordinate;
-        private void CheckSwap_CheckedChanged(object sender, EventArgs e) => swap_colors = !swap_colors;
-        private void CheckComplex_CheckedChanged(object sender, EventArgs e) => complex_mode = !complex_mode;
-        private void CheckPoints_CheckedChanged(object sender, EventArgs e) => delete_point = !delete_point;
-        private void CheckRetain_CheckedChanged(object sender, EventArgs e) => retain_graph = !retain_graph;
-        private void CheckShade_CheckedChanged(object sender, EventArgs e) => shade_rainbow = !shade_rainbow;
-        private void CheckAuto_CheckedChanged(object sender, EventArgs e)
-        {
-            auto_export = !auto_export;
-            if (CheckAuto.Checked) AddressInput_DoubleClick(sender, e);
-        }
+            => Combo_SelectionChanged(ComboSpecial.SelectedItem.ToString());
+        private void ComboColoring_SelectedIndexChanged(object sender, EventArgs e)
+            => color_mode = AddOne(ComboColoring.SelectedIndex);
+        private void ComboContour_SelectedIndexChanged(object sender, EventArgs e)
+            => contour_mode = AddOne(ComboContour.SelectedIndex);
+        //
+        private void CheckComplex_CheckedChanged(object sender, EventArgs e) => ReverseBool(ref is_complex);
+        private void CheckSwap_CheckedChanged(object sender, EventArgs e) => ReverseBool(ref swap_colors);
+        private void CheckCoor_CheckedChanged(object sender, EventArgs e) => ReverseBool(ref delete_coor);
+        private void CheckPoints_CheckedChanged(object sender, EventArgs e) => ReverseBool(ref delete_point);
+        private void CheckShade_CheckedChanged(object sender, EventArgs e) => ReverseBool(ref shade);
+        private void CheckRetain_CheckedChanged(object sender, EventArgs e) => ReverseBool(ref freeze_graph);
+        private void CheckAuto_CheckedChanged(object sender, EventArgs e) => ReverseBool(ref is_auto);
         private void CheckEdit_CheckedChanged(object sender, EventArgs e)
         {
-            DraftBox.ReadOnly = !DraftBox.ReadOnly;
-            if (DraftBox.ReadOnly)
-            {
-                DraftBox.BackColor = Color.Black;
-                DraftBox.ForeColor = READONLY_GRAY;
-                DraftBox.ScrollBars = ScrollBars.None;
-            }
-            else
-            {
-                DraftBox.BackColor = SystemColors.ControlDarkDark;
-                DraftBox.ForeColor = Color.White;
-                DraftBox.ScrollBars = ScrollBars.Vertical;
-            }
+            DraftBox.ReadOnly = !DraftBox.ReadOnly; // Cannnot pass properties as reference
+            DraftBox.BackColor = DraftBox.ReadOnly ? Color.Black : SystemColors.ControlDarkDark;
+            DraftBox.ForeColor = DraftBox.ReadOnly ? READONLY_GRAY : Color.White;
+            DraftBox.ScrollBars = DraftBox.ReadOnly ? ScrollBars.None : ScrollBars.Vertical;
         }
-        private void TitleLabel_DoubleClick(object sender, EventArgs e)
-            => FormalMessageBox.Show("DESIGNER: Fraljimetry\r\nDATE: Oct, 2024\r\nLOCATION: Xi'an, China" +
-                "\r\n\r\nThis software was developed in Visual Studio 2022, written in C# Winform, to visualize real or complex functions or equations with no more than two variables. To bolster artistry and practicality, numerous modes are rendered, making it possible to generate images that fit users' needs perfectly." +
-                "\r\n\r\n(I wish the definitions of these operations are self-evident if you try some inputs yourself or refer to the examples.)" +
-                "\r\n\r\n********** ELEMENTARY **********" +
-                "\r\n\r\n+ - * / ^ ( )" +
-                "\r\n\r\nLog/Ln, Exp, Sqrt, Abs, Sin, Cos, Tan, Sinh/Sh, Cosh/Ch, Tanh/Th, Arcsin/Asin, Arccos/Acos, Arctan/Atan, Arsinh/Arsh, Arccosh/Arch, Arctanh/Arth (f(x,y)/f(z))" +
-                "\r\n\r\nConjugate/Conj(f(z)), e(f(z))    // e(z)=exp(2*pi*i*z)" +
-                "\r\n\r\n********** COMBINATORICS **********" +
-                "\r\n\r\nFloor(double a), Ceil(double a), Round(double a), " +
-                "\r\nSign/Sgn(double a)" +
-                "\r\n\r\nMod(double a, double n), nCr(int n, int r), nPr(int n, int r)" +
-                "\r\n\r\nMax(double a, double b, ...), Min(double a, double b, ...), Factorial/Fact(int n)" +
-                "\r\n\r\n********** SPECIAL FUNCTIONS **********" +
-                "\r\n\r\nF(double/Complex a, double/Complex b, double/Complex c, f(x,y)/f(z)) / " +
-                "\r\nF(double/Complex a, double/Complex b, double/Complex c, f(x,y)/f(z), int n)" +
-                "\r\n// HyperGeometric Series." +
-                "\r\n\r\nGamma/Ga(f(x,y)/f(z)) / Gamma/Ga(f(x,y)/f(z), int n)" +
-                "\r\n\r\nBeta(f(x,y)/f(z), g(x,y)/g(z)) / " +
-                "\r\nBeta(f(x,y)/f(z), g(x,y)/g(z), int n)" +
-                "\r\n\r\nZeta(f(x,y)/f(z)) / Zeta(f(x,y)/f(z), int n)" +
-                "\r\n// This is a mess for n too large." +
-                "\r\n\r\n********** REPETITIOUS OPERATIONS **********" +
-                "\r\n// Capitalizations represent substitutions of variables." +
-                "\r\n\r\nSum(f(x,y,k)/f(z,k), k , int a, int b)" +
-                "\r\nProduct/Prod(f(x,y,k)/f(z,k), k , int a, int b)" +
-                "\r\n\r\nIterate1(f(x,y,X,k), g(x,y), k , int a, int b)" +
-                "\r\nIterate2(f_1(x,y,X,Y,k), f_2(x,y,X,Y,k), g_1(x,y), g_2(x,y), k , int a, int b, int choice)" +
-                "\r\nIterate(f(z,Z,k), g(z), k , int a, int b)" +
-                "\r\n// g's are the initial values and f's are the iterations." +
-                "\r\n\r\nComposite1/Comp1(f(x,y), g_1(x,y,X), ...,g_n(x,y,X))" +
-                "\r\nComposite2/Comp2(f_1(x,y), f_2(x,y), g_1(x,y,X,Y), h_1(x,y,X,Y), ..., g_n(x,y,X,Y), h_n(x,y,X,Y), int choice)" +
-                "\r\nComposite/Comp(f(z), g_1(z,Z), ..., g_n(z,Z))" +
-                "\r\n// f's are the initial values and g's are the compositions." +
-                "\r\n\r\n********** PLANAR CURVES **********" +
-                "\r\n\r\nFunc(f(x)) / Func(f(x), double increment) / Func(f(x), double a, double b) / Func(f(x), double a, double b, double increment)" +
-                "\r\n\r\nPolar(f(θ), θ, double a, double b) / Polar(f(θ), θ, double a, double b, double increment)" +
-                "\r\n\r\nParam(f(u), g(u), u, double a, double b) / Param(f(u), g(u), u, double a, double b, double increment)" +
-                "\r\n\r\n********** RECURSIONS **********" +
-                "\r\n// These methods should be combined with the former." +
-                "\r\n\r\nLoop(Input(k), k , int a, int b)" +
-                "\r\n\r\nIterateLoop(f(x,y,X,k), g(x,y), k, int a, int b) / " +
-                "\r\nIterateLoop(f(z,Z,k), g(z), k, int a, int b, h(x,y,X))" +
-                "\r\n// Displaying each step of iteration." +
-                "\r\n\r\n...|...|...    // Displaying one by one." +
-                "\r\n\r\n********** CONSTANTS **********" +
-                "\r\n\r\nPi, e, Gamma/Ga" +
-                "\r\n\r\n(The following are shortcuts for instant operations.)" +
-                "\r\n\r\n********** SHORTCUTS **********" +
-                "\r\n" +
-                "\r\n[Control + P] Graph in the MicroBox;" +
-                "\r\n[Control + G] Graph in the MacroBox;" +
-                "\r\n[Control + B] Graph in both regions;" +
-                "\r\n[Control + S] Save as a snapshot;" +
-                "\r\n[Control + K] Save the history as a txt file;" +
-                "\r\n[Control + Shift + C] Check all inputs;" +
-                "\r\n[Control + R] Erase all checks;" +
-                "\r\n[Control + D] Restore to the default state;" +
-                "\r\n[Shift + Back] Clear the InputBox;" +
-                "\r\n[Control + D2] See the profile of Fraljimetry;" +
-                "\r\n[Contorl + D3] Clear all ReadOnly displays;" +
-                "\r\n[Control + OemQuestion] See the manual;" +
-                "\r\n[Oemtilde] Play or pause the ambient music;" +
-                "\r\n[Delete] Clear both graphing regions;" +
-                "\r\n[Escape] Close Fraljiculator;" +
-                "\r\n\r\nClick [Tab] to witness the process of control design.", 600, 450);
-        private void PictureLogo_DoubleClick(object sender, EventArgs e)
-            => FormalMessageBox.Show("Dear math lovers and mathematicians:" +
-                "\r\n    Hi! I'm Fralji, a video uploader on Bilibili since July, 2021, right before entering college." +
-                "\r\n    I aim to create unique lectures on many branches of mathematics. If you have any problem on the usage of this application, please contact me via one the following:" +
-                "\r\n\r\nBilibili: 355884223" +
-                "\r\n\r\nEmail: frankjiiiiiiii@gmail.com" +
-                "\r\n\r\nWechat: F1r4a2n8k5y7 (recommended)" +
-                "\r\n\r\nQQ: 472955101" +
-                "\r\n\r\nFacebook: Fraljimetry" +
-                "\r\n\r\nInstagram: shaodaji (NOT recommended)", 600, 450);
-        private static void ShowCustomMessageBox(string title, string message)
-            => CustomMessageBox.Show(title + "\r\n\r\n" + message, 450, 300);
-        private void GeneralLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[GENERAL SCOPE]", "The detailed scope effectuates only if the general scope is set to zero." + "\r\n\r\n" + "Any legitimate variable-free algebraic expressions are acceptable in this box, and will be checked as in the input box.");
-        private void AtLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[SAVING ADDRESS]", "You can create a file for snapshot storage and paste the address here." + "\r\n\r\n" + "The png snapshot will be named according to the current time.");
-        private void ModeLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[COLORING MODES]", "The spectrum of colors represents the argument of meromorphic functions, the value of two-variable functions, or the parameterization of planar curves." + "\r\n\r\n" + "The first three modes have swappable colorations, while the last two do not.");
-        private void ContourLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[CONTOUR MODES]", "Both options apply to the complex version only, for the contouring of meromorphic functions." + "\r\n\r\n" + "Only the Polar option admits translucent display, which represents the decay rate of modulus.");
-        private void ThickLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[MAGNITUDE]", "This represents the width of curves, the size of special points, or the decay rate of translucence." + "\r\n\r\n" + "It should be appropriate according to the scale. The examples have been tweaked with much effort.");
-        private void InputLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[FORMULA INPUT]", "Space and enter keys are both accepted. Unaccepted keys have been banned." + "\r\n\r\n" + "Try to use longer names for temporary parameters to avoid collapse of the interpreter.");
-        private void DraftLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[HISTORY LIST]", "The input will be saved both here and in the clipboard." + "\r\n\r\n" + "The clicked points will also be recorded with detailed information, along with the time of snapshots and history storage.");
-        private void PreviewLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[MICROCOSM]", "Since graphing cannot pause manually during the process, you may glimpse the result here." + "\r\n\r\n" + "It differs from the main graph only in size. It is estimated that graphing here is around 20 times faster.");
-        private void TimeLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[DURATION]", "The auto snapshot cannot capture updates here on time, but it will be saved in the history list along with the pixels." + "\r\n\r\n" + "This value is precious as an embodiment of the input structure for future reference.");
-        private void ExampleLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[EXAMPLES]", "These examples mainly inform you of the various types of legitimate grammar." + "\r\n\r\n" + "Some renderings are elegant while others are chaotic. Elegant graphs take time to explore: the essence of this app.");
-        private void FunctionLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[FUNCTIONS]", "The two combo boxes contain regular and special operations respectively. The latter tends to have complicated grammar." + "\r\n\r\n" + "Select the content in the input box and choose here for substitution.");
-        private void PointNumLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[PIXELS]", "This box logs the number of points or line segments throughout the previous loop, which is almost proportional to time and iteration." + "\r\n\r\n" + "Nullity often results from divergence or undefinedness.");
-        private void DenseLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[DENSITY]", "It refers to the density of contours or the relative speed of planar curves with respect to parameterizations." + "\r\n\r\n" + "It should be appropriate according to the scale. The examples have been tweaked with much effort.");
-        private void DetailLabel_DoubleClick(object sender, EventArgs e)
-            => ShowCustomMessageBox("[DETAILED SCOPE]", "You can even reverse the endpoints to create the mirror effect." + "\r\n\r\n" + "Any legitimate variable-free algebraic expressions are acceptable in this box, and will be checked as in the input box.");
+        #endregion
+
+        // 4.SPECIAL EFFECTS
+        #region Click & Mouse Down & Text Changed
+        private void Delete_Click(int[] borders, bool isMain)
+        {
+            Details_TextChanged(null, EventArgs.Empty); // So that axes and grids are drawn correctly
+            ClearBitmap(GetBitmap(isMain));
+            Invalidate(isMain ? rect_mac : rect_mic); Update(); // To clear the overflowed curves
+            DrawBackdropAxesGrids(borders, isMain);
+        } // Sensitive
+        private void Delete_Click(EventArgs e) { DeleteMain_Click(this, e); DeletePreview_Click(this, e); }
+        private void DeleteMain_Click(object sender, EventArgs e) => Delete_Click(GetBorders(1), true);
+        private void DeletePreview_Click(object sender, EventArgs e) => Delete_Click(GetBorders(2), false);
         private void ClearButton_Click(object sender, EventArgs e)
         {
-            foreach (TextBox control in new[] { DraftBox, PointNumDisplay, TimeDisplay, X_CoorDisplay, Y_CoorDisplay, ModulusDisplay, AngleDisplay, FunctionDisplay, CaptionBox })
-                control.Text = String.Empty;
-            plot_loop = points_chosen = 0;
-            drafted = false;
+            loop_number = chosen_number = 0;
+            TextBox[] textBoxes = { DraftBox, PointNumDisplay, TimeDisplay, X_CoorDisplay, Y_CoorDisplay,
+                ModulusDisplay, AngleDisplay, FunctionDisplay, CaptionBox };
+            foreach (var tbx in textBoxes) SetText(tbx, String.Empty);
+            InputString_Focus();
         }
-        private void Delete_Click(int xLeft, int yUp, int xRight, int yDown, bool isMain)
+        private void PicturePlay_Click(object sender, EventArgs e)
         {
-            SetTDSB(); // this is necessary
-            ClearBitmap(bitmap, new Rectangle(xLeft, yUp, xRight - xLeft, yDown - yUp));
-            Graphics g = CreateGraphics();
-            DrawBackdrop(g, new(Color.Gray, 1), xLeft, yUp, xRight, yDown, new SolidBrush(Color.Black));
-            if (CheckCoor.Checked) DrawAxesGrid(g, scopes, new int[] { xLeft, xRight, yUp, yDown });
-            axes_drawn = isMain ? axes_drawn : CheckCoor.Checked;
-            Axes_drawn = isMain ? CheckCoor.Checked : Axes_drawn;
-        }
-        private void DeleteMain_Click(object sender, EventArgs e)
-            => Delete_Click(X_LEFT_MAC, Y_UP_MAC, X_RIGHT_MAC, Y_DOWN_MAC, true);
-        private void DeletePreview_Click(object sender, EventArgs e)
-            => Delete_Click(X_LEFT_MIC, Y_UP_MIC, X_RIGHT_MIC, Y_DOWN_MIC, false);
-        private static void SetFontStyle(Label ctrl)
-            => ctrl.ForeColor = ctrl.ForeColor == Color.White ? UNCHECKED_YELLOW : ctrl.ForeColor;
-        private static void RecoverFontStyle(Label ctrl)
-            => ctrl.ForeColor = ctrl.ForeColor == UNCHECKED_YELLOW ? Color.White : ctrl.ForeColor;
-        private static void Input_MouseHover(Control input, Label label)
-        {
-            input.BackColor = label.ForeColor == Color.White ? FOCUS_GRAY : label.ForeColor;
-            input.ForeColor = Color.Black;
-            SetFontStyle(label);
-        }
-        private static void Input_MouseLeave(Control input, Label label)
-        {
-            input.BackColor = CONTROL_GRAY;
-            input.ForeColor = Color.White;
-            RecoverFontStyle(label);
-        }
-        private void GeneralInput_MouseHover(object sender, EventArgs e) => Input_MouseHover(GeneralInput, GeneralLabel);
-        private void GeneralInput_MouseLeave(object sender, EventArgs e) => Input_MouseLeave(GeneralInput, GeneralLabel);
-        private void X_Left_MouseHover(object sender, EventArgs e) => Input_MouseHover(X_Left, DetailLabel);
-        private void X_Left_MouseLeave(object sender, EventArgs e) => Input_MouseLeave(X_Left, DetailLabel);
-        private void X_Right_MouseHover(object sender, EventArgs e) => Input_MouseHover(X_Right, DetailLabel);
-        private void X_Right_MouseLeave(object sender, EventArgs e) => Input_MouseLeave(X_Right, DetailLabel);
-        private void Y_Left_MouseHover(object sender, EventArgs e) => Input_MouseHover(Y_Left, DetailLabel);
-        private void Y_Left_MouseLeave(object sender, EventArgs e) => Input_MouseLeave(Y_Left, DetailLabel);
-        private void Y_Right_MouseHover(object sender, EventArgs e) => Input_MouseHover(Y_Right, DetailLabel);
-        private void Y_Right_MouseLeave(object sender, EventArgs e) => Input_MouseLeave(Y_Right, DetailLabel);
-        private void ThickInput_MouseHover(object sender, EventArgs e) => Input_MouseHover(ThickInput, ThickLabel);
-        private void ThickInput_MouseLeave(object sender, EventArgs e) => Input_MouseLeave(ThickInput, ThickLabel);
-        private void DenseInput_MouseHover(object sender, EventArgs e) => Input_MouseHover(DenseInput, DenseLabel);
-        private void DenseInput_MouseLeave(object sender, EventArgs e) => Input_MouseLeave(DenseInput, DenseLabel);
-        private void AddressInput_MouseHover(object sender, EventArgs e) => Input_MouseHover(AddressInput, AtLabel);
-        private void AddressInput_MouseLeave(object sender, EventArgs e) => Input_MouseLeave(AddressInput, AtLabel);
-        private void DraftBox_MouseHover(object sender, EventArgs e)
-        {
-            if (!DraftBox.ReadOnly)
+            if (is_paused)
             {
-                DraftBox.BackColor = FOCUS_GRAY;
-                DraftBox.ForeColor = Color.Black;
-                toolTip_ReadOnly.SetToolTip(DraftBox, String.Empty);
-                SetFontStyle(DraftLabel);
+                MediaPlayer.controls.currentPosition = pause_pos;
+                MediaPlayer.controls.play();
+                ColorTimer.Start();
             }
             else
             {
-                toolTip_ReadOnly.SetToolTip(DraftBox, "ReadOnly");
-                DraftLabel.ForeColor = READONLY_PURPLE;
-                DraftBox.ForeColor = Color.White;
+                pause_pos = MediaPlayer.controls.currentPosition;
+                MediaPlayer.controls.pause();
+                ColorTimer.Stop();
+                TitleLabel.ForeColor = Color.White;
             }
+            ReverseBool(ref is_paused);
+        }
+        private void PictureIncorrect_Click(object sender, EventArgs e)
+        { if (!ProcessingGraphics()) CheckValidityCore(() => InputErrorBox(sender, e, WRONG_FORMAT)); }
+        //
+        private void PointNumDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(PointNumDisplay.Handle);
+        private void TimeDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(TimeDisplay.Handle);
+        private void X_CoorDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(X_CoorDisplay.Handle);
+        private void Y_CoorDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(Y_CoorDisplay.Handle);
+        private void ModulusDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(ModulusDisplay.Handle);
+        private void AngleDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(AngleDisplay.Handle);
+        private void FunctionDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(FunctionDisplay.Handle);
+        private void CaptionBox_MouseDown(object sender, MouseEventArgs e) => HideCaret(CaptionBox.Handle);
+        private void DraftBox_MouseDown(object sender, MouseEventArgs e) { if (DraftBox.ReadOnly) HideCaret(DraftBox.Handle); }
+        //
+        private void Graph_DoubleClick(object sender, EventArgs e)
+        {
+            InputString.BackColor = FOCUS_GRAY;
+            Label[] labels = { InputLabel, AtLabel, GeneralLabel, DetailLabel, X_Scope, Y_Scope, ThickLabel, DenseLabel,
+                ExampleLabel, FunctionLabel, ModeLabel, ContourLabel };
+            foreach (var lbl in labels) lbl.ForeColor = Color.White;
+            PictureIncorrect.Visible = PictureCorrect.Visible = is_checking = false;
+        }
+        private void SubtitleBox_DoubleClick(object sender, EventArgs e)
+        {
+            DrawBackdrop(GetBorders(1)); DrawBackdrop(GetBorders(2));
+            SetAxesDrawn(true, false); SetAxesDrawn(false, false);
+            DrawReferenceRectangles(SystemColors.ControlDark);
+        }
+        private void InputString_DoubleClick(object sender, EventArgs e) => InputString_TextChanged(sender, e);
+        private void AddressInput_DoubleClick(object sender, EventArgs e) => AddressInput_TextChanged(sender, e);
+        private void GeneralInput_DoubleClick(object sender, EventArgs e) => GeneralInput_TextChanged(sender, e);
+        private void X_Left_DoubleClick(object sender, EventArgs e) => X_Left_TextChanged(sender, e);
+        private void X_Right_DoubleClick(object sender, EventArgs e) => X_Right_TextChanged(sender, e);
+        private void Y_Left_DoubleClick(object sender, EventArgs e) => Y_Left_TextChanged(sender, e);
+        private void Y_Right_DoubleClick(object sender, EventArgs e) => Y_Right_TextChanged(sender, e);
+        private void ThickInput_DoubleClick(object sender, EventArgs e) => ThickInput_TextChanged(sender, e);
+        private void DenseInput_DoubleClick(object sender, EventArgs e) => DenseInput_TextChanged(sender, e);
+        //
+        private void MiniChecks(TextBox[] textBoxes, Label lbl)
+        {
+            try
+            {
+                if (ProcessingGraphics()) return; bool noSomeInput = false;
+                foreach (var tbx in textBoxes)
+                {
+                    bool noInput = String.IsNullOrEmpty(tbx.Text); noSomeInput = noSomeInput || noInput;
+                    if (!noInput) _ = RealSub.Obtain(RecoverMultiply.Beautify(tbx.Text, false)); // For checking
+                }
+                lbl.ForeColor = noSomeInput ? Color.White : CORRECT_GREEN; // White if any being null or empty
+            }
+            catch (Exception) { lbl.ForeColor = ERROR_RED; }
+        }
+        private void MiniChecks(TextBox tbx, Label lbl) => MiniChecks(new TextBox[] { tbx }, lbl);
+        private void Details_TextChanged(object sender, EventArgs e)
+        {
+            if (ProcessingGraphics()) return;
+            MiniChecks(new TextBox[] { X_Left, X_Right, Y_Left, Y_Right }, DetailLabel);
+            if (scopes == null) return; // Necessary for the initialization
+
+            void checkScopes(bool b1, bool b2, Color c) { if (b1) X_Scope.ForeColor = c; if (b2) Y_Scope.ForeColor = c; }
+            try { SetThicknessDensenessScopesBorders(false); }
+            catch (Exception) { checkScopes(InvalidScopesX(), InvalidScopesY(), ERROR_RED); }
+            finally { checkScopes(!InvalidScopesX(), !InvalidScopesY(), CORRECT_GREEN); } // Should not declare the bools ahead
+        } //Sensitive
+
+        private void X_Left_TextChanged(object sender, EventArgs e) => Details_TextChanged(sender, e);
+        private void X_Right_TextChanged(object sender, EventArgs e) => Details_TextChanged(sender, e);
+        private void Y_Left_TextChanged(object sender, EventArgs e) => Details_TextChanged(sender, e);
+        private void Y_Right_TextChanged(object sender, EventArgs e) => Details_TextChanged(sender, e);
+        private void GeneralInput_TextChanged(object sender, EventArgs e) => MiniChecks(GeneralInput, GeneralLabel);
+        private void ThickInput_TextChanged(object sender, EventArgs e) => MiniChecks(ThickInput, ThickLabel);
+        private void DenseInput_TextChanged(object sender, EventArgs e) => MiniChecks(DenseInput, DenseLabel);
+        private void InputString_TextChanged(object sender, EventArgs e)
+        {
+            if (ProcessingGraphics()) return;
+            static int removeSomeKeys(TextBox tbx)
+            {
+                int caretPosition = tbx.Text.Length - tbx.SelectionStart - tbx.SelectionLength; // Necessary
+                foreach (char c in RecoverMultiply.BARRED_CHARS) SetText(tbx, tbx.Text.Replace(c, ' '));
+                return tbx.Text.Length - caretPosition;
+            }
+            int pos = removeSomeKeys(InputString); // Necessary
+            CheckComplex.Checked = MyString.ContainsAny(MyString.ReplaceConfusion(InputString.Text), RecoverMultiply._ZZ_);
+            CheckValidityCore(() =>
+            {
+                InputString.BackColor = InputLabel.ForeColor = ERROR_RED;
+                PictureIncorrect.Visible = true; PictureCorrect.Visible = false;
+            });
+            InputString.SelectionStart = pos;
+        }
+        private void AddressInput_TextChanged(object sender, EventArgs e)
+        {
+            if (ProcessingGraphics()) return;
+            if (String.IsNullOrEmpty(AddressInput.Text)) AtLabel.ForeColor = Color.White;
+            else AtLabel.ForeColor = Directory.Exists(AddressInput.Text) ? CORRECT_GREEN : ERROR_RED;
+        }
+        //
+        private static void BanDoubleClick(TextBox tbx, MouseEventArgs e)
+        { tbx.SelectionStart = tbx.GetCharIndexFromPosition(e.Location); tbx.SelectionLength = 0; } // To ban the default selection
+        private void InputString_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(InputString, e);
+        private void AddressInput_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(AddressInput, e);
+        private void GeneralInput_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(GeneralInput, e);
+        private void X_Left_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(X_Left, e);
+        private void X_Right_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(X_Right, e);
+        private void Y_Left_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(Y_Left, e);
+        private void Y_Right_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(Y_Right, e);
+        private void ThickInput_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(ThickInput, e);
+        private void DenseInput_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(DenseInput, e);
+        #endregion
+
+        #region Key Press & Key Down
+        private void BarSomeKeys(object sender, KeyPressEventArgs e)
+        { if (RecoverMultiply.BARRED_CHARS.Contains(e.KeyChar)) e.Handled = true; }
+        private void InputString_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
+        private void GeneralInput_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
+        private void X_Left_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
+        private void X_Right_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
+        private void Y_Left_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
+        private void Y_Right_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
+        private void ThickInput_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
+        private void DenseInput_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
+        //
+        private static void AutoKeyDown(TextBox tbx, KeyEventArgs e)
+        {
+            if (tbx.ReadOnly) return; int caretPosition = tbx.SelectionStart; // Necessary
+            void selectSuppress(int pos) { tbx.SelectionStart = caretPosition + pos; e.SuppressKeyPress = true; }
+            void insertSelectSuppress(string insertion, int pos)
+            { SetText(tbx, tbx.Text.Insert(caretPosition, insertion)); selectSuppress(pos); }
+
+            if (!MyString.CheckParenthesis(tbx.Text.AsSpan(caretPosition, tbx.SelectionLength))) selectSuppress(0);
+            else if (e.KeyCode == Keys.D9 && (ModifierKeys & Keys.Shift) != 0)
+            {
+                if (tbx.SelectionLength == 0) insertSelectSuppress(RecoverMultiply.LR_BRA, 1);
+                else
+                {
+                    string selectedText = tbx.Text.Substring(caretPosition, tbx.SelectionLength);
+                    SetText(tbx, tbx.Text.Remove(caretPosition, tbx.SelectionLength));
+                    insertSelectSuppress("(" + selectedText + ")", selectedText.Length + 2);
+                }
+            }
+            else if (e.KeyCode == Keys.D0 && (ModifierKeys & Keys.Shift) != 0)
+            {
+                if (tbx.SelectionLength > 0) selectSuppress(0);
+                else if (caretPosition == 0) selectSuppress(0);
+                else if (RecoverMultiply.IsOpen(tbx.Text[caretPosition - 1])) selectSuppress(1);
+            }
+            else if (e.KeyCode == Keys.Oemcomma) insertSelectSuppress(", ", 2);
+            else if (e.KeyCode == Keys.OemPipe) insertSelectSuppress(" | ", 3);
+            else if (e.KeyCode == Keys.Back)
+            {
+                if (caretPosition == 0 || !MyString.CheckParenthesis(tbx.Text) || tbx.SelectionLength > 0) return;
+                else if (RecoverMultiply.IsOpen(tbx.Text[caretPosition - 1]))
+                {
+                    if (RecoverMultiply.IsClose(tbx.Text[caretPosition])) SetText(tbx, tbx.Text.Remove(caretPosition - 1, 2));
+                    selectSuppress(-1);
+                }
+                else if (tbx.Text[caretPosition - 1] == ')') selectSuppress(-1);
+            }
+        } // Sensitive
+        private void InputString_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(InputString, e);
+        private void GeneralInput_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(GeneralInput, e);
+        private void X_Left_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(X_Left, e);
+        private void X_Right_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(X_Right, e);
+        private void Y_Left_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(Y_Left, e);
+        private void Y_Right_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(Y_Right, e);
+        private void ThickInput_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(ThickInput, e);
+        private void DenseInput_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(DenseInput, e);
+
+        private static void Combo_KeyDown(KeyEventArgs e) // To ban the default keyboard search
+            => e.SuppressKeyPress = e.KeyCode >= Keys.A && e.KeyCode <= Keys.Z;
+        private void ComboExamples_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(e);
+        private void ComboFunctions_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(e);
+        private void ComboSpecial_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(e);
+        private void ComboColoring_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(e);
+        private void ComboContour_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(e);
+        #endregion
+
+        #region Mouse Hover & Mouse Leave
+        private static void SetFont(Label lbl) => lbl.ForeColor = lbl.ForeColor == Color.White ? UNCHECK_YELLOW : lbl.ForeColor;
+        private static void RecoverFont(Label lbl) => lbl.ForeColor = lbl.ForeColor == UNCHECK_YELLOW ? Color.White : lbl.ForeColor;
+        private static void HoverEffect(TextBox tbx, Label lbl)
+        { tbx.BackColor = lbl.ForeColor == Color.White ? FOCUS_GRAY : lbl.ForeColor; tbx.ForeColor = Color.Black; SetFont(lbl); }
+        private static void LeaveEffect(TextBox tbx, Label lbl)
+        { tbx.BackColor = CONTROL_GRAY; tbx.ForeColor = Color.White; RecoverFont(lbl); }
+
+        private void InputString_MouseHover(object sender, EventArgs e) => SetFont(InputLabel);
+        private void InputString_MouseLeave(object sender, EventArgs e) => RecoverFont(InputLabel);
+        private void AddressInput_MouseHover(object sender, EventArgs e) => HoverEffect(AddressInput, AtLabel);
+        private void AddressInput_MouseLeave(object sender, EventArgs e) => LeaveEffect(AddressInput, AtLabel);
+        private void GeneralInput_MouseHover(object sender, EventArgs e) => HoverEffect(GeneralInput, GeneralLabel);
+        private void GeneralInput_MouseLeave(object sender, EventArgs e) => LeaveEffect(GeneralInput, GeneralLabel);
+        private void X_Left_MouseHover(object sender, EventArgs e) => HoverEffect(X_Left, DetailLabel);
+        private void X_Left_MouseLeave(object sender, EventArgs e) => LeaveEffect(X_Left, DetailLabel);
+        private void X_Right_MouseHover(object sender, EventArgs e) => HoverEffect(X_Right, DetailLabel);
+        private void X_Right_MouseLeave(object sender, EventArgs e) => LeaveEffect(X_Right, DetailLabel);
+        private void Y_Left_MouseHover(object sender, EventArgs e) => HoverEffect(Y_Left, DetailLabel);
+        private void Y_Left_MouseLeave(object sender, EventArgs e) => LeaveEffect(Y_Left, DetailLabel);
+        private void Y_Right_MouseHover(object sender, EventArgs e) => HoverEffect(Y_Right, DetailLabel);
+        private void Y_Right_MouseLeave(object sender, EventArgs e) => LeaveEffect(Y_Right, DetailLabel);
+        private void ThickInput_MouseHover(object sender, EventArgs e) => HoverEffect(ThickInput, ThickLabel);
+        private void ThickInput_MouseLeave(object sender, EventArgs e) => LeaveEffect(ThickInput, ThickLabel);
+        private void DenseInput_MouseHover(object sender, EventArgs e) => HoverEffect(DenseInput, DenseLabel);
+        private void DenseInput_MouseLeave(object sender, EventArgs e) => LeaveEffect(DenseInput, DenseLabel);
+        private void DraftBox_MouseHover(object sender, EventArgs e)
+        {
+            if (DraftBox.ReadOnly)
+            {
+                DraftLabel.ForeColor = READONLY_PURPLE;
+                toolTip_ReadOnly.SetToolTip(DraftBox, TIP);
+            }
+            else
+            {
+                DraftBox.BackColor = FOCUS_GRAY;
+                toolTip_ReadOnly.SetToolTip(DraftBox, String.Empty);
+                SetFont(DraftLabel);
+            }
+            DraftBox.ForeColor = DraftBox.ReadOnly ? Color.White : Color.Black;
         }
         private void DraftBox_MouseLeave(object sender, EventArgs e)
         {
-            if (!DraftBox.ReadOnly)
-            {
-                DraftBox.BackColor = CONTROL_GRAY;
-                DraftBox.ForeColor = Color.White;
-            }
-            else DraftBox.ForeColor = READONLY_GRAY;
+            if (!DraftBox.ReadOnly) DraftBox.BackColor = CONTROL_GRAY;
+            DraftBox.ForeColor = DraftBox.ReadOnly ? READONLY_GRAY : Color.White;
             DraftLabel.ForeColor = Color.White;
         }
+
         private void ComboExamples_MouseHover(object sender, EventArgs e) => ExampleLabel.ForeColor = COMBO_BLUE;
         private void ComboExamples_MouseLeave(object sender, EventArgs e) => ExampleLabel.ForeColor = Color.White;
         private void ComboFunctions_MouseHover(object sender, EventArgs e) => FunctionLabel.ForeColor = COMBO_BLUE;
@@ -1811,69 +1612,7 @@ namespace FunctionGrapher2._0
         private void ComboColoring_MouseLeave(object sender, EventArgs e) => ModeLabel.ForeColor = Color.White;
         private void ComboContour_MouseHover(object sender, EventArgs e) => ContourLabel.ForeColor = COMBO_BLUE;
         private void ComboContour_MouseLeave(object sender, EventArgs e) => ContourLabel.ForeColor = Color.White;
-        private void InputString_TextChanged(object sender, EventArgs e)
-        {
-            if (InputString.ReadOnly) return;
-            is_checking = text_changed = true;
-            AutoCheckComplex();
-            CheckValidity();
-        }
-        private void InputString_DoubleClick(object sender, EventArgs e) => InputString_TextChanged(sender, e);
-        private void AddressInput_TextChanged(object sender, EventArgs e)
-        {
-            if (InputString.ReadOnly) return;
-            if (String.IsNullOrEmpty(AddressInput.Text)) AtLabel.ForeColor = Color.White;
-            else AtLabel.ForeColor = Directory.Exists(AddressInput.Text) ? CORRECT_GREEN : ERROR_RED;
-        }
-        private void AddressInput_DoubleClick(object sender, EventArgs e) => AddressInput_TextChanged(sender, e);
-        private void GeneralInput_TextChanged(object sender, EventArgs e) => MiniChecks(GeneralInput, GeneralLabel);
-        private void GeneralInput_DoubleClick(object sender, EventArgs e) => GeneralInput_TextChanged(sender, e);
-        private void ColorOfDetails()
-        {
-            if (X_Scope.ForeColor == CORRECT_GREEN && Y_Scope.ForeColor == CORRECT_GREEN)
-                DetailLabel.ForeColor = CORRECT_GREEN;
-            if (X_Scope.ForeColor == ERROR_RED || Y_Scope.ForeColor == ERROR_RED)
-                DetailLabel.ForeColor = ERROR_RED;
-        }
-        private void X_Left_TextChanged(object sender, EventArgs e) { MiniChecks(X_Left, X_Scope); ColorOfDetails(); }
-        private void X_Left_DoubleClick(object sender, EventArgs e) => X_Left_TextChanged(sender, e);
-        private void X_Right_TextChanged(object sender, EventArgs e) { MiniChecks(X_Right, X_Scope); ColorOfDetails(); }
-        private void X_Right_DoubleClick(object sender, EventArgs e) => X_Right_TextChanged(sender, e);
-        private void Y_Left_TextChanged(object sender, EventArgs e) { MiniChecks(Y_Left, Y_Scope); ColorOfDetails(); }
-        private void Y_Left_DoubleClick(object sender, EventArgs e) => Y_Left_TextChanged(sender, e);
-        private void Y_Right_TextChanged(object sender, EventArgs e) { MiniChecks(Y_Right, Y_Scope); ColorOfDetails(); }
-        private void Y_Right_DoubleClick(object sender, EventArgs e) => Y_Right_TextChanged(sender, e);
-        private void ThickInput_TextChanged(object sender, EventArgs e) => MiniChecks(ThickInput, ThickLabel);
-        private void ThickInput_DoubleClick(object sender, EventArgs e) => ThickInput_TextChanged(sender, e);
-        private void DenseInput_TextChanged(object sender, EventArgs e) => MiniChecks(DenseInput, DenseLabel);
-        private void DenseInput_DoubleClick(object sender, EventArgs e) => DenseInput_TextChanged(sender, e);
-        private static void BanDoubleClick(TextBox ctrl, MouseEventArgs e)
-        { ctrl.SelectionStart = ctrl.GetCharIndexFromPosition(e.Location); ctrl.SelectionLength = 0; }
-        private void InputString_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(InputString, e);
-        private void GeneralInput_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(GeneralInput, e);
-        private void X_Left_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(X_Left, e);
-        private void X_Right_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(X_Right, e);
-        private void Y_Left_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(Y_Left, e);
-        private void Y_Right_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(Y_Right, e);
-        private void ThickInput_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(ThickInput, e);
-        private void DenseInput_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(DenseInput, e);
-        private void AddressInput_MouseDoubleClick(object sender, MouseEventArgs e) => BanDoubleClick(AddressInput, e);
-        private void InputString_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(InputString, e);
-        private void InputString_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
-        private void GeneralInput_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(GeneralInput, e);
-        private void GeneralInput_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
-        private void X_Left_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(X_Left, e);
-        private void X_Left_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
-        private void X_Right_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(X_Right, e);
-        private void X_Right_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
-        private void Y_Left_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(Y_Left, e);
-        private void Y_Left_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
-        private void Y_Right_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(Y_Right, e);
-        private void Y_Right_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
-        private void ThickInput_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(ThickInput, e);
-        private void ThickInput_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
-        private void DenseInput_KeyDown(object sender, KeyEventArgs e) => AutoKeyDown(DenseInput, e);
-        private void DenseInput_KeyPress(object sender, KeyPressEventArgs e) => BarSomeKeys(sender, e);
+
         private void CheckComplex_MouseHover(object sender, EventArgs e) => CheckComplex.ForeColor = COMBO_BLUE;
         private void CheckComplex_MouseLeave(object sender, EventArgs e) => CheckComplex.ForeColor = Color.White;
         private void CheckSwap_MouseHover(object sender, EventArgs e) => CheckSwap.ForeColor = COMBO_BLUE;
@@ -1886,14 +1625,11 @@ namespace FunctionGrapher2._0
         private void CheckShade_MouseLeave(object sender, EventArgs e) => CheckShade.ForeColor = Color.White;
         private void CheckRetain_MouseHover(object sender, EventArgs e) => CheckRetain.ForeColor = COMBO_BLUE;
         private void CheckRetain_MouseLeave(object sender, EventArgs e) => CheckRetain.ForeColor = Color.White;
-        private void CheckEdit_MouseHover(object sender, EventArgs e) => CheckEdit.ForeColor = COMBO_BLUE;
-        private void CheckEdit_MouseLeave(object sender, EventArgs e) => CheckEdit.ForeColor = Color.White;
         private void CheckAuto_MouseHover(object sender, EventArgs e) => CheckAuto.ForeColor = COMBO_BLUE;
         private void CheckAuto_MouseLeave(object sender, EventArgs e) => CheckAuto.ForeColor = Color.White;
-        private void SubtitleBox_DoubleClick(object sender, EventArgs e)
-        { if (InputString.ReadOnly) return; Clipboard.SetText(InputString.Text); InputString.Text = String.Empty; }
-        private void SubtitleBox_MouseHover(object sender, EventArgs e) => SubtitleBox.ForeColor = ERROR_RED;
-        private void SubtitleBox_MouseLeave(object sender, EventArgs e) => SubtitleBox.ForeColor = Color.White;
+        private void CheckEdit_MouseHover(object sender, EventArgs e) => CheckEdit.ForeColor = COMBO_BLUE;
+        private void CheckEdit_MouseLeave(object sender, EventArgs e) => CheckEdit.ForeColor = Color.White;
+
         private void PointNumDisplay_MouseHover(object sender, EventArgs e)
         { PointNumLabel.ForeColor = READONLY_PURPLE; PointNumDisplay.ForeColor = Color.White; }
         private void PointNumDisplay_MouseLeave(object sender, EventArgs e)
@@ -1922,180 +1658,149 @@ namespace FunctionGrapher2._0
         { ValueLabel.ForeColor = READONLY_PURPLE; FunctionDisplay.ForeColor = Color.White; }
         private void FunctionDisplay_MouseLeave(object sender, EventArgs e)
         { ValueLabel.ForeColor = Color.White; FunctionDisplay.ForeColor = READONLY_GRAY; }
-        private void InputString_MouseHover(object sender, EventArgs e) => SetFontStyle(InputLabel);
-        private void InputString_MouseLeave(object sender, EventArgs e) => RecoverFontStyle(InputLabel);
-        private void VScrollBarX_MouseHover(object sender, EventArgs e) => X_Bar.ForeColor = READONLY_PURPLE;
-        private void VScrollBarX_MouseLeave(object sender, EventArgs e) => X_Bar.ForeColor = Color.White;
-        private void VScrollBarY_MouseHover(object sender, EventArgs e) => Y_Bar.ForeColor = READONLY_PURPLE;
-        private void VScrollBarY_MouseLeave(object sender, EventArgs e) => Y_Bar.ForeColor = Color.White;
+
+        private void SubtitleBox_MouseHover(object sender, EventArgs e) => SubtitleBox.ForeColor = ERROR_RED;
+        private void SubtitleBox_MouseLeave(object sender, EventArgs e) => SubtitleBox.ForeColor = Color.White;
         private void CaptionBox_MouseHover(object sender, EventArgs e) => CaptionBox.ForeColor = Color.White;
         private void CaptionBox_MouseLeave(object sender, EventArgs e) => CaptionBox.ForeColor = READONLY_GRAY;
-        private void PictureLogo_MouseHover(object sender, EventArgs e) => EnlargePicture(PictureLogo, 5);
-        private void PictureLogo_MouseLeave(object sender, EventArgs e) => ShrinkPicture(PictureLogo, 5);
         private void PreviewLabel_MouseHover(object sender, EventArgs e) => PreviewLabel.ForeColor = READONLY_PURPLE;
         private void PreviewLabel_MouseLeave(object sender, EventArgs e) => PreviewLabel.ForeColor = Color.White;
         private void X_Bar_MouseHover(object sender, EventArgs e) => X_Bar.ForeColor = READONLY_PURPLE;
         private void X_Bar_MouseLeave(object sender, EventArgs e) => X_Bar.ForeColor = Color.White;
         private void Y_Bar_MouseHover(object sender, EventArgs e) => Y_Bar.ForeColor = READONLY_PURPLE;
         private void Y_Bar_MouseLeave(object sender, EventArgs e) => Y_Bar.ForeColor = Color.White;
-        private void CaptionBox_MouseDown(object sender, MouseEventArgs e) => HideCaret(CaptionBox.Handle);
-        private void PointNumDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(PointNumDisplay.Handle);
-        private void TimeDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(TimeDisplay.Handle);
-        private void X_CoorDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(X_CoorDisplay.Handle);
-        private void Y_CoorDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(Y_CoorDisplay.Handle);
-        private void ModulusDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(ModulusDisplay.Handle);
-        private void AngleDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(AngleDisplay.Handle);
-        private void FunctionDisplay_MouseDown(object sender, MouseEventArgs e) => HideCaret(FunctionDisplay.Handle);
-        private void DraftBox_MouseDown(object sender, MouseEventArgs e) { if (DraftBox.ReadOnly) HideCaret(DraftBox.Handle); }
-        private void PicturePlay_Click(object sender, EventArgs e) => PlayOrPause();
+
+        private static void ResizeControl(PictureBox pbx, int delta, bool isLarge)
+        {
+            if (isLarge ? is_resized : !is_resized) return; // To prevent repetitious call
+            var (_location, _size) = isLarge ? (-delta, 2 * delta) : (delta, -2 * delta);
+            pbx.Location = new(pbx.Location.X + _location, pbx.Location.Y + _location);
+            pbx.Size = new(pbx.Width + _size, pbx.Height + _size);
+            is_resized = isLarge;
+        }
+        private static void EnlargePicture(PictureBox pbx, int increment) => ResizeControl(pbx, increment, true);
+        private static void ShrinkPicture(PictureBox pbx, int decrement) => ResizeControl(pbx, decrement, false);
+
+        private void PictureLogo_MouseHover(object sender, EventArgs e) => EnlargePicture(PictureLogo, 5);
+        private void PictureLogo_MouseLeave(object sender, EventArgs e) => ShrinkPicture(PictureLogo, 5);
         private void PicturePlay_MouseHover(object sender, EventArgs e) => EnlargePicture(PicturePlay, 2);
         private void PicturePlay_MouseLeave(object sender, EventArgs e) => ShrinkPicture(PicturePlay, 2);
-        private void PictureIncorrect_Click(object sender, EventArgs e) { if (!InputString.ReadOnly) CheckValidityDetailed(); }
         private void PictureIncorrect_MouseHover(object sender, EventArgs e) => EnlargePicture(PictureIncorrect, 2);
         private void PictureIncorrect_MouseLeave(object sender, EventArgs e) => ShrinkPicture(PictureIncorrect, 2);
+
         private void ExportButton_MouseHover(object sender, EventArgs e) => AddressInput_DoubleClick(sender, e);
         private void StoreButton_MouseHover(object sender, EventArgs e) => AddressInput_DoubleClick(sender, e);
-        private static void EnlargePicture(Control ctrl, int increment)
-        {
-            if (is_resized) return;
-            ctrl.Location = new Point(ctrl.Location.X - increment, ctrl.Location.Y - increment);
-            ctrl.Size = new Size(ctrl.Width + 2 * increment, ctrl.Height + 2 * increment);
-            is_resized = true;
-        }
-        private static void ShrinkPicture(Control ctrl, int decrement)
-        {
-            if (!is_resized) return;
-            ctrl.Location = new Point(ctrl.Location.X + decrement, ctrl.Location.Y + decrement);
-            ctrl.Size = new Size(ctrl.Width - 2 * decrement, ctrl.Height - 2 * decrement);
-            is_resized = false;
-        }
-        private void Combo_KeyDown(object sender, KeyEventArgs e)
-            => e.SuppressKeyPress = e.Control && e.KeyCode >= Keys.A && e.KeyCode <= Keys.Z;
-        private void ComboColoring_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(sender, e);
-        private void ComboContour_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(sender, e);
-        private void ComboExamples_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(sender, e);
-        private void ComboFunctions_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(sender, e);
-        private void ComboSpecial_KeyDown(object sender, KeyEventArgs e) => Combo_KeyDown(sender, e);
         #endregion
-    }
-    public class BaseMessageBox : Form
+    } /// The visualization interface
+    public class MyMessageBox : Form
     {
-        protected static readonly Color BACKDROP_GRAY = Color.FromArgb(64, 64, 64);
-        public static TextBox txtMessage;
-        public static Button btnOk;
-        [DllImport("user32.dll")]
-        static extern bool HideCaret(IntPtr hWnd);
-        private static bool isBtnOkResized = false;
-        protected float originalFontSize, ScalingFactor;
-        protected void ReduceFontSizeByScale(Control parent)
+        private static Button btnOk;
+        private static TextBox txtMessage;
+        private static readonly Color BACKDROP_GRAY = Graph.Argb(64, 64, 64),
+            FORMAL_FONT = Graph.Argb(224, 224, 224), CUSTOM_FONT = Color.Turquoise, EXCEPTION_FONT = Color.LightPink,
+            FORMAL_BUTTON = Color.Black, CUSTOM_BUTTON = Color.DarkBlue, EXCEPTION_BUTTON = Color.DarkRed;
+
+        private static float scaling_factor;
+        private static readonly float MSG_TXT_SIZE = 10f, BTN_TXT_SIZE = 7f;
+        private static readonly int DIST = 10, BTN_SIZE = 25, BORDER = 10; // DIST = dist(btnOk, txtMessage)
+        private static bool is_resized;
+        private static readonly string MSG_FONT = "Microsoft YaHei UI", BTN_FONT = "Microsoft YaHei UI", BTN_TXT = "OK";
+
+        private static void BtnOk_MouseEnterLeave(bool isEnter)
         {
-            foreach (Control ctrl in parent.Controls)
-            {
-                Font currentFont = ctrl.Font;
-                float newFontSize = currentFont.Size / ScalingFactor;
-                ctrl.Font = new Font(currentFont.FontFamily, newFontSize, currentFont.Style);
-                if (ctrl.Controls.Count > 0) ReduceFontSizeByScale(ctrl);
-            }
-        }
-        protected void BtnOk_MouseEnter(object sender, EventArgs e)
+            if (isEnter ? is_resized : !is_resized) return; // To prevent repetitious call
+            var (_size, _location, _font) = isEnter ? (2, -1, 1f) : (-2, 1, -1f);
+            btnOk.Size = new(btnOk.Width + _size, btnOk.Height + _size);
+            btnOk.Location = new(btnOk.Location.X + _location, btnOk.Location.Y + _location);
+            btnOk.Font = new(btnOk.Font.FontFamily, btnOk.Font.Size + _font, btnOk.Font.Style);
+            is_resized = isEnter;
+        } // Analogous to Graph.ResizeControl
+        private void BtnOk_MouseEnter(object sender, EventArgs e) => BtnOk_MouseEnterLeave(true);
+        private void BtnOk_MouseLeave(object sender, EventArgs e) => BtnOk_MouseEnterLeave(false);
+        private void Form_KeyDown(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) Close(); }
+
+        private void SetUpForm(int width, int height)
         {
-            if (sender is Button btn && !isBtnOkResized)
-            {
-                btn.Size = new Size(btn.Width + 2, btn.Height + 2);
-                btn.Location = new Point(btn.Location.X - 1, btn.Location.Y - 1);
-                originalFontSize = btn.Font.Size;
-                btn.Font = new Font(btn.Font.FontFamily, originalFontSize + 1f, btn.Font.Style);
-                isBtnOkResized = true;
-            }
-        }
-        protected void BtnOk_MouseLeave(object sender, EventArgs e)
-        {
-            if (sender is Button btn && isBtnOkResized)
-            {
-                btn.Size = new Size(btn.Width - 2, btn.Height - 2);
-                btn.Location = new Point(btn.Location.X + 1, btn.Location.Y + 1);
-                btn.Font = new Font(btn.Font.FontFamily, originalFontSize, btn.Font.Style);
-                isBtnOkResized = false;
-            }
-        }
-        protected static void TxtMessage_MouseDown(object sender, MouseEventArgs e)
-        { if (txtMessage != null && txtMessage.Handle != IntPtr.Zero) HideCaret(txtMessage.Handle); }
-        protected void Form_KeyDown(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) Close(); }
-        protected void SetUpForm(int width, int height)
-        {
-            FormBorderStyle = FormBorderStyle.None; TopMost = true; Size = new Size(width, height);
+            FormBorderStyle = FormBorderStyle.None; TopMost = true; Size = new(width, height);
             StartPosition = FormStartPosition.CenterScreen; BackColor = SystemColors.ControlDark;
         }
-        protected static void SetUpTextBox(int border, string message, int width, int height, Color textColor)
+        private static void SetUpTextBox(string message, int width, int height, Color txtColor)
         {
             txtMessage = new()
             {
                 Text = message,
-                Font = new Font("Microsoft YaHei UI", 10, FontStyle.Regular),
-                ForeColor = textColor,
+                Font = new(MSG_FONT, MSG_TXT_SIZE, FontStyle.Regular),
+                ForeColor = txtColor,
                 Multiline = true,
                 ReadOnly = true,
                 BorderStyle = BorderStyle.None,
                 BackColor = BACKDROP_GRAY,
                 ScrollBars = ScrollBars.Vertical
             };
-            txtMessage.SetBounds(10, 10, width - 20, height - border * 2 - 10);
+            txtMessage.SetBounds(BORDER, BORDER, width - BORDER * 2, height - BORDER - 2 * DIST - BTN_SIZE);
             txtMessage.SelectionStart = message.Length; txtMessage.SelectionLength = 0;
-            txtMessage.MouseDown += TxtMessage_MouseDown;
+            txtMessage.GotFocus += (sender, e) => { Graph.HideCaret(txtMessage.Handle); }; // This works well!
         }
-        protected void SetUpButton(int border, int width, int height, Color buttonColor, Color buttonTextColor)
+        private void SetUpButton(int width, int height, Color btnColor, Color btnTxtColor)
         {
             btnOk = new()
             {
-                Size = new Size(50, 25),
-                Location = new Point(width / 2 - 25, height - border / 2 - 25),
-                BackColor = buttonColor,
-                ForeColor = buttonTextColor,
-                Font = new Font("Microsoft YaHei UI", 7, FontStyle.Bold),
+                Size = new(BTN_SIZE * 2, BTN_SIZE),
+                Location = new(width / 2 - BTN_SIZE, height - DIST - BTN_SIZE),
+                BackColor = btnColor,
+                ForeColor = btnTxtColor,
+                Font = new(BTN_FONT, BTN_TXT_SIZE, FontStyle.Bold),
                 FlatStyle = FlatStyle.Flat,
-                Text = "OK",
+                Text = BTN_TXT,
             };
             btnOk.FlatAppearance.BorderSize = 0; btnOk.Click += (sender, e) => { Close(); };
             btnOk.MouseEnter += BtnOk_MouseEnter; btnOk.MouseLeave += BtnOk_MouseLeave;
         }
-        protected void Setup(string message, int width, int height, Color textColor, Color buttonColor, Color buttonTextColor)
+        private void Setup(string message, int width, int height, Color txtColor, Color btnColor, Color btnTxtColor)
         {
-            int border = 23;
             SetUpForm(width, height);
-            SetUpTextBox(border, message, width, height, textColor);
-            SetUpButton(border, width, height, buttonColor, buttonTextColor);
+            SetUpTextBox(message, width, height, txtColor);
+            SetUpButton(width, height, btnColor, btnTxtColor);
             Controls.Add(txtMessage); Controls.Add(btnOk);
-            ScalingFactor = Graphics.FromHwnd(IntPtr.Zero).DpiX / 96f / 1.5f;
-            ReduceFontSizeByScale(this);
-            KeyPreview = true; KeyDown += new KeyEventHandler(Form_KeyDown);
-            Load += (sender, e) => { HideCaret(txtMessage.Handle); };
+
+            Graph.ReduceFontSizeByScale(this, ref scaling_factor);
+            KeyPreview = true; KeyDown += new(Form_KeyDown);
         }
-        public static void Display(string message, int width, int height, Color textColor, Color buttonColor, Color buttonTextColor)
+        private static void Display(string message, int width, int height, Color txtColor, Color btnColor, Color btnTxtColor)
         {
-            BaseMessageBox box = new();
-            box.Setup(message, width, height, textColor, buttonColor, buttonTextColor);
+            MyMessageBox box = new();
+            box.Setup(message, width, height, txtColor, btnColor, btnTxtColor);
             box.ShowDialog();
         }
-    }
-    public class FormalMessageBox : BaseMessageBox
-    { public static void Show(string message, int width, int height)
-            => Display(message, width, height, Color.FromArgb(224, 224, 224), Color.Black, Color.White); } // Title & Profile
-    public class CustomMessageBox : BaseMessageBox
-    { public static void Show(string message, int width, int height)
-            => Display(message, width, height, Color.Turquoise, Color.DarkBlue, Color.White); } // Instructions
-    public class ExceptionMessageBox : BaseMessageBox
-    { public static void Show(string message, int width, int height)
-            => Display(message, width, height, Color.LightPink, Color.DarkRed, Color.White); } // Exceptions
+
+        public static void ShowFormal(string message, int width, int height)
+            => Display(message, width, height, FORMAL_FONT, FORMAL_BUTTON, Color.White);
+        public static void ShowCustom(string message, int width, int height)
+            => Display(message, width, height, CUSTOM_FONT, CUSTOM_BUTTON, Color.White);
+        public static void ShowException(string message, int width, int height)
+            => Display(message, width, height, EXCEPTION_FONT, EXCEPTION_BUTTON, Color.White);
+    } /// Customized box construction
+
+    /// <summary>
+    /// TOOLKIT SECTION
+    /// </summary>
     public class MyString
     {
+        public static readonly string[] FUNC_NAMES = new string[] { "Func(", "func(", "Polar(", "polar(", "Param(", "param(" };
+        public static readonly string[] LOOP_NAMES = new string[] { "Loop(", "loop(" };
+
+        private static readonly List<string> CONFUSION = new() { "Zeta", "zeta" };
+        private static readonly char SUB_CHAR = ';';
+
         #region Reckoning
-        public static int CountChar(ReadOnlySpan<char> input, char c)
+        protected static int CountChars(ReadOnlySpan<char> input, string charsToCheck)
         {
-            int count = 0;
-            foreach (char ch in input) if (ch == c) count++;
+            HashSet<char> charSet = new(charsToCheck); int count = 0;
+            foreach (char c in input) if (charSet.Contains(c)) count++;
             return count;
         }
-        public static bool ContainsAny(string input, char[] charsToCheck)
+        protected static (int, int, int, int) PrepareLoop(ReadOnlySpan<char> temp) => (CountChars(temp, "("), temp.Length - 1, 0, -1);
+        public static bool ContainsAny(ReadOnlySpan<char> input, string charsToCheck)
         {
             HashSet<char> charSet = new(charsToCheck);
             foreach (char c in input) if (charSet.Contains(c)) return true;
@@ -2103,62 +1808,74 @@ namespace FunctionGrapher2._0
         }
         public static bool ContainsAny(string input, string[] stringsToCheck)
         {
-            foreach (string str in stringsToCheck) if (input.Contains(str)) return true;
+            foreach (string s in stringsToCheck) if (input.Contains(s)) return true;
             return false;
         }
-        public static bool ContainFunctionName(string input)
-            => ContainsAny(input, new string[] { "Func", "func", "Polar", "polar", "Param", "param" });
+        public static bool ContainsFuncName(string input) => ContainsAny(input, FUNC_NAMES);
         #endregion
 
-        #region Parenthesis
-        public static int PairedParenthesis(ReadOnlySpan<char> input, int n)
+        #region Parentheses
+        private static int PairedParenthesis(ReadOnlySpan<char> input, int n)
         {
-            for (int i = n + 1, countBracket = 1; ; i++)
+            for (int i = n + 1, count = 1; ; i++)
             {
-                if (input[i] == '(') countBracket++; else if (input[i] == ')') countBracket--;
-                if (countBracket == 0) return i;
+                if (RecoverMultiply.IsOpen(input[i])) count++; else if (RecoverMultiply.IsClose(input[i])) count--;
+                if (count == 0) return i;
             }
         }
-        public static int PairedInnerParenthesis(ReadOnlySpan<char> input, int n)
-        { for (int i = n + 1; ; i++) if (input[i] == ')') return i; }
+        protected static (int, int, string) PrepareSeriesSub(string input)
+        {
+            int i = input.IndexOf(ReplaceTags.UNDERLINE), end = PairedParenthesis(input, i + 1);
+            return (i, end, BraFreePart(input, i + 1, end));
+        }
+        protected static void ResetBeginEnd(ReadOnlySpan<char> temp, ref int begin, ref int end)
+        {
+            static (int, int) innerBra(ReadOnlySpan<char> input, int start)
+            {
+                for (int i = start, j = -1; ; i--)
+                { if (RecoverMultiply.IsClose(input[i])) j = i; else if (RecoverMultiply.IsOpen(input[i])) return (i, j); }
+            }
+            static int pairedInnerBra(ReadOnlySpan<char> input, int n) { for (int i = n + 1; ; i++) if (input[i] == ')') return i; }
+
+            (begin, end) = innerBra(temp, begin); if (end == -1) end = pairedInnerBra(temp, begin);
+        }
         public static bool CheckParenthesis(ReadOnlySpan<char> input)
         {
             int sum = 0;
             foreach (char c in input)
             {
-                if (c == '(') sum++; else if (c == ')') sum--;
+                if (RecoverMultiply.IsOpen(c)) sum++; else if (RecoverMultiply.IsClose(c)) sum--;
                 if (sum < 0) return false;
             }
             return sum == 0;
         }
-        public static (int, int) InnerParenthesis(ReadOnlySpan<char> input, int start)
-        {
-            for (int i = start, j = -1; ; i--)
-            { if (input[i] == ')') j = i; else if (input[i] == '(') return (i, j); }
-        }
-        public static string BracketSub(int n) => String.Concat("[", n.ToString(), "]");
-        public static string IndexSub(int n) => String.Concat("(", n.ToString(), ")");
+        private static string SubBase(int n, char c1, char c2) => String.Concat(c1, n.ToString(), c2);
+        protected static string BracketSub(int n) => SubBase(n, '[', ']');
         #endregion
 
-        #region Manipulations
-        public static string Extract(string input, int begin, int end) => input.AsSpan(begin, end - begin + 1).ToString();
+        #region Replacement
+        private static string Extract(string input, int begin, int end) => input.AsSpan(begin, end - begin + 1).ToString();
+        protected static string BraFreePart(string temp, int begin, int end) => Extract(temp, begin + 1, end - 1);
+        protected static string TryBraNum(string input) => BraFreePart(input, 0, input.Length - 1);
         public static string Replace(string original, string replacement, int begin, int end)
-        {
-            int resultLength = begin + replacement.Length + (original.Length - end - 1);
-            return String.Create(resultLength, (original, replacement, begin, end), (span, state) => {
-                (string orig, string repl, int b, int e) = state;
-                orig.AsSpan(0, b).CopyTo(span); // Copy the beginning
-                repl.AsSpan().CopyTo(span[b..]); // Copy the replacement
-                orig.AsSpan(e + 1).CopyTo(span[(b + repl.Length)..]); // Copy the remaining
-            });
-        }
+            => String.Create(begin + replacement.Length + original.Length - end - 1,
+                (original, replacement, begin, end), (span, state) =>
+                {
+                    var (orig, repl, b, e) = state;
+                    orig.AsSpan(0, b).CopyTo(span); // Copying the beginning
+                    repl.AsSpan().CopyTo(span[b..]); // Copying the replacement
+                    orig.AsSpan(e + 1).CopyTo(span[(b + repl.Length)..]); // Copying the remaining
+                });
+        public static string ReplaceLoop(string[] split, int a, int b, int i) => split[a].Replace(split[b], SubBase(i, '(', ')'));
+        protected static void SubstituteTemp(ref string temp, ref int begin, int end, ref int tagL, ref int count)
+        { begin -= tagL + 1; tagL = -1; temp = Replace(temp, BracketSub(count++), begin--, end); }
         private static string ReplaceInterior(string input, char c, char replacement)
         {
-            if (!input.Contains('_')) return input;
+            if (!input.Contains(ReplaceTags.UNDERLINE)) return input;
             StringBuilder result = new(input);
-            for (int i = 0, length = result.Length; i < length; i++)
+            for (int i = 0; i < result.Length; i++)
             {
-                if (result[i] != '_') continue;
+                if (result[i] != ReplaceTags.UNDERLINE) continue;
                 int endIndex = PairedParenthesis(input, i + 1);
                 for (int j = i + 1; j < endIndex; j++)
                 {
@@ -2169,16 +1886,22 @@ namespace FunctionGrapher2._0
             }
             return result.ToString();
         }
-        public static string[] ReplaceRecover(string input)
-            => SplitByChars(ReplaceInterior(input, ',', ';'), new char[] { ',' }).Select(part => part.Replace(';', ',')).ToArray();
+        protected static string[] ReplaceRecover(string input)
+            => SplitByChars(ReplaceInterior(input, ',', SUB_CHAR), ",").Select(part => part.Replace(SUB_CHAR, ',')).ToArray();
+        protected static string ReplaceSubstrings(string input, List<string> substrings, string replacement)
+           => System.Text.RegularExpressions.Regex.Replace(input, String.Join("|", substrings), replacement);
+        public static string ReplaceConfusion(string input) => ReplaceSubstrings(input, CONFUSION, String.Empty);
+        #endregion
+
+        #region Miscellaneous
         public static string[] SplitString(string input)
-            => ReplaceRecover(Extract(input, input.IndexOf('(') + 1, PairedParenthesis(input, input.IndexOf('(')) - 1));
-        public static string[] SplitByChars(string input, char[] delimiters)
+            => ReplaceRecover(BraFreePart(input, input.IndexOf('('), PairedParenthesis(input, input.IndexOf('('))));
+        public static string[] SplitByChars(string input, string delimiters)
         {
             List<string> segments = new();
             StringBuilder currentSegment = new();
             HashSet<char> delimiterSet = new(delimiters);
-            for (int i = 0, length = input.Length; i < length; i++)
+            for (int i = 0; i < input.Length; i++)
             {
                 if (delimiterSet.Contains(input[i]))
                 {
@@ -2190,141 +1913,261 @@ namespace FunctionGrapher2._0
             segments.Add(currentSegment.ToString());
             return segments.ToArray();
         }
-        public static string TrimStartChars(string input, char[] charsToTrim)
+        protected static string TrimStartChar(string input, char c)
         {
             int startIndex = 0, length = input.Length;
-            HashSet<char> trimSet = new(charsToTrim);
-            while (startIndex < length && trimSet.Contains(input[startIndex])) startIndex++;
+            while (startIndex < length && input[startIndex] == c) startIndex++;
+
             if (startIndex == length) return String.Empty;
             StringBuilder result = new(length - startIndex);
             return result.Append(input, startIndex, length - startIndex).ToString();
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        public static (StringBuilder, string[]) PlusMultiplyBreaker(string input, string signs, char sign, int THRESHOLD)
+        public static string TrimLargeDouble(double input, double threshold)
+            => Math.Abs(input) < threshold ? input.ToString("#0.000000") : input.ToString("E3");
+        public static string GetAngle(double x, double y) => (Graph.ArgRGB(x, y) / Math.PI).ToString("#0.00000") + " * PI";
+        public static void ThrowException(bool error = true) { if (error) throw new Exception(); }
+        public static void ThrowInvalidLengths(string[] split, int[] length) => ThrowException(!length.Contains(split.Length));
+        public static void For(int start, int end, Action<int> action) { for (int i = start; i <= end; i++) action(i); }
+        #endregion
+    } /// General simplifications
+    public class RealComplex : MyString
+    {
+        protected static readonly double GAMMA = 0.5772156649015329;
+        protected static readonly int THRESHOLD = 10, STEP = 1;
+        protected static readonly string SUB_CHARS = ":;", IJ_ = String.Concat(I_, J_);
+
+        protected const char _A = 'a', A_ = 'A', B_ = 'B', C_ = 'C', _C = 'c', _D_ = '$', E = 'e', E_ = 'E', _F = 'f', F_ = 'F', _F_ = '!', G = 'g',
+            G_ = 'G', _H = 'h', I = 'i', I_ = 'I', J_ = 'J', _L = 'l', M_ = 'M', MAX = '>', MIN = '<', MODE_1 = '1', MODE_2 = '2', P = 'p', P_ = 'P',
+            _Q = 'q', _R = 'r', S_ = 'S', _S = 's', SB = '[', SP = '#', _T = 't', _X = 'x', X_ = 'X', _Y = 'y', Y_ = 'Y', _Z = 'z', Z_ = 'Z', _Z_ = 'Z';
+
+        protected static RealMatrix ModeChooser(string mode, RealMatrix output_1, RealMatrix output_2, int row, int column)
+        {
+            switch (Char.Parse(mode))
+            {
+                case MODE_1: return output_1;
+                case MODE_2: return output_2;
+                default: ThrowException(); return new(row, column);
+            }
+        }
+        protected static (string[], StringBuilder) PrepareBreakPSMD(string input, string signs, char sign, int THRESHOLD)
         {
             StringBuilder signsBuilder = new(), result = new(input);
-            for (int i = 0, flag = 0, length = result.Length; i < length; i++)
+            for (int i = 0, flag = 0; i < result.Length; i++)
             {
                 if (!signs.Contains(result[i])) continue;
                 if (++flag % THRESHOLD == 0)
                 {
-                    string replacement = result[i] == sign ? ":" : ";"; // necessary
+                    char replacement = result[i] == sign ? SUB_CHARS[0] : SUB_CHARS[1]; // Necessary
                     result.Remove(i, 1).Insert(i, replacement);
                     signsBuilder.Append(result[i]);
                 }
             }
-            return (signsBuilder, SplitByChars(result.ToString(), new char[] { ':', ';' }));
+            return (SplitByChars(result.ToString(), SUB_CHARS), signsBuilder);
         }
-        #endregion
+        protected static string[] PrepareBreakPower(string input, int THRESHOLD)
+        {
+            StringBuilder result = new(input);
+            for (int i = 0, flag = 0; i < result.Length; i++)
+            {
+                if (result[i] != '^') continue;
+                if (++flag % THRESHOLD == 0) result.Remove(i, 1).Insert(i, SUB_CHARS[0]);
+            }
+            return SplitByChars(result.ToString(), SUB_CHARS[0].ToString());
+        }
+        protected static (string[], StringBuilder) GetPlusSubtractComponents(string input)
+        {
+            bool begins_minus = input[0] == '-'; input = TrimStartChar(input, '-');
+            string[] temp_split = SplitByChars(input, "+-"); input = String.Concat(begins_minus ? '-' : '+', input); // Sensitive
 
-        #region Substitutions
-        public static string ReplaceSubstrings(string input, List<string> substrings, string replacement)
-            => System.Text.RegularExpressions.Regex.Replace(input, String.Join("|", substrings), replacement);
-        public static string ReplaceTagReal(string input)
-        {
-            Dictionary<string, string> replacements = new()
-            {
-                { "Floor", "~f$" }, { "floor", "~f$" },
-                { "Ceil", "~c$" }, { "ceil", "~c$" },
-                { "Round", "~r$" }, { "round", "~r$" },
-                { "Sign", "~s$" }, { "sign", "~s$" }, { "Sgn", "~s$" }, { "sgn", "~s$" },
-                { "Mod", "~M_" }, { "mod", "~M_" },
-                { "nCr", "~C_" }, { "nPr", "~A_" },
-                { "Max", "~>_" }, { "max", "~>_" }, { "Min", "~<_" }, { "min", "~<_" },
-                { "Iterate1", "~1I_" }, { "iterate1", "~1I_" }, { "Iterate2", "~2I_" }, { "iterate2", "~2I_" },
-                { "Composite1", "~1J_" }, { "composite1", "~1J_" }, { "Composite2", "~2J_" }, { "composite2", "~2J_" },
-                { "Comp1", "~1J_" }, { "comp1", "~1J_" }, { "Comp2", "~2J_" }, { "comp2", "~2J_" }
-            };
-            foreach (var pair in replacements) input = input.Replace(pair.Key, pair.Value);
-            return ReplaceTagCommon(input);
+            StringBuilder psBuilder = new();
+            for (int i = 0; i < input.Length; i++) if ("+-".Contains(input[i])) psBuilder.Append(input[i]);
+            return (temp_split, psBuilder);
         }
-        public static string ReplaceTagComplex(string input)
+        protected static (string[], StringBuilder) GetMultiplyDivideComponents(string tmpSplit)
         {
-            Dictionary<string, string> replacements = new()
-            {
-                { "Iterate(", "~I_(" }, { "iterate(", "~I_(" },
-                { "Composite", "~J_" }, { "composite", "~J_" }, { "Comp", "~J_" }, { "comp", "~J_" },
-                { "conjugate", "~J" }, { "Conjugate", "~J" }, { "conj", "~J" }, { "Conj", "~J" },
-                { "e(", "~E#(" }
-            };
-            foreach (var replacement in replacements) input = input.Replace(replacement.Key, replacement.Value);
-            return ReplaceTagCommon(input);
+            string[] split = SplitByChars(tmpSplit, "*/");
+            StringBuilder mdBuilder = new();
+            for (int i = 0; i < tmpSplit.Length; i++) if ("*/".Contains(tmpSplit[i])) mdBuilder.Append(tmpSplit[i]);
+            return (split, mdBuilder);
         }
-        public static string ReplaceTagCommon(string input)
-        {
-            Dictionary<string, string> replacements = new()
-            {
-                { "Product", "~P_" }, { "product", "~P_" }, { "Prod", "~P_" }, { "prod", "~P_" },
-                { "Sum", "~S_" }, { "sum", "~S_" },
-                { "F(", "~F_(" },
-                { "Gamma(", "~G_(" }, { "gamma(", "~G_(" }, { "Ga(", "~G_(" }, { "ga(", "~G_(" },
-                { "Beta", "~B_" }, { "beta", "~B_" },
-                { "Zeta", "~Z_" }, { "zeta", "~Z_" },
-                { "log", "~l" }, { "Log", "~l" }, { "ln", "~l" }, { "Ln", "~l" },
-                { "exp", "~E" }, { "Exp", "~E" },
-                { "sqrt", "~q" }, { "Sqrt", "~q" },
-                { "abs", "~a" }, { "Abs", "~a" },
-                { "factorial", "~!" }, { "Factorial", "~!" }, { "fact", "~!" }, { "Fact", "~!" },
-                { "pi", "p" }, { "Pi", "p" },
-                { "gamma", "g" }, { "Gamma", "g" }, { "ga", "g" }, { "Ga", "g" },
-                { "arcsinh", "~ash" }, { "Arcsinh", "~ash" }, { "arcsh", "~ash" }, { "Arcsh", "~ash" }, { "arsinh", "~ash" }, { "Arsinh", "~ash" }, { "arsh", "~ash" }, { "Arsh", "~ash" },
-                { "arccosh", "~ach" }, { "Arccosh", "~ach" }, { "arcch", "~ach" }, { "Arcch", "~ach" }, { "arcosh", "~ach" }, { "Arcosh", "~ach" }, { "arch", "~ach" }, { "Arch", "~ach" },
-                { "arctanh", "~ath" }, { "Arctanh", "~ath" }, { "arcth", "~ath" }, { "Arcth", "~ath" }, { "artanh", "~ath" }, { "Artanh", "~ath" }, { "arth", "~ath" }, { "Arth", "~ath" },
-                { "arcsin", "~as" }, { "Arcsin", "~as" }, { "asin", "~as" }, { "Asin", "~as" },
-                { "arccos", "~ac" }, { "Arccos", "~ac" }, { "acos", "~ac" }, { "Acos", "~ac" },
-                { "arctan", "~at" }, { "Arctan", "~at" }, { "atan", "~at" }, { "Atan", "~at" },
-                { "sinh", "~sh" }, { "Sinh", "~sh" },
-                { "cosh", "~ch" }, { "Cosh", "~ch" },
-                { "tanh", "~th" }, { "Tanh", "~th" },
-                { "sin", "~s" }, { "Sin", "~s" },
-                { "cos", "~c" }, { "Cos", "~c" },
-                { "tan", "~t" }, { "Tan", "~t" }
-            };
-            foreach (var replacement in replacements) input = input.Replace(replacement.Key, replacement.Value);
-            return input;
-        }
-        public static string ReplaceTagCurves(string input)
-        {
-            Dictionary<string, string> replacements = new()
-            {
-                { "func", "α_" }, { "Func", "α_" },
-                { "polar", "β_" }, { "Polar", "β_" },
-                { "param", "γ_" }, { "Param", "γ_" },
-                { "iterateLoop", "δ_" }, { "IterateLoop", "δ_" }
-            };
-            foreach (var replacement in replacements) input = input.Replace(replacement.Key, replacement.Value);
-            return input;
-        }
-        public static string ReplaceComplexConfusion(string input)
-            => ReplaceSubstrings(input, new List<string> { "Zeta", "zeta" }, String.Empty);
-        public static string TrimLargeDouble(double input, double threshold)
-            => Math.Abs(input) < threshold ? input.ToString("#0.000000") : input.ToString("E3");
-        public static int ToInt(string input) => (int)RealSub.Obtain(input);
-        #endregion
-    }
-    public class RecoverMultiply
+    } /// Commonalities for RealSub & ComplexSub
+    public class ReplaceTags : RealComplex
     {
-        public static string BeautifyInput(string input, bool isComplex)
+        public static readonly string[] FUNCTIONS = new string[]
+            { "floor", "ceil", "round", "sgn", "F", "gamma", "beta", "zeta", "mod", "nCr", "nPr",
+                "max", "min", "log", "exp", "sqrt", "abs", "factorial", "arsinh", "arcosh", "artanh",
+                "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "sin", "cos", "tan", "conjugate", "e" };
+        public static readonly string[] SPECIALS = new string[]
+            { "product", "sum", "iterate1", "iterate2", "composite1", "composite2",
+                "iterateLoop", "loop", "iterate", "composite", "func", "polar", "param" };
+        public static readonly string[] EX_COMPLEX = new string[]
         {
-            if (!MyString.CheckParenthesis(input) || input.Contains("()")
-                || MyString.ContainsAny(input, "_#!<>$%&@~:\'\"\\?=`[]{}\t".ToCharArray())) throw new FormatException();
-            input = MyString.ReplaceSubstrings(input, new List<string> { "\n", "\r", " " }, String.Empty);
-            return isComplex ? MyString.ReplaceTagComplex(input) : MyString.ReplaceTagReal(input);
+            "F(1-10i,0.5i,i,zzzzz,100)",
+            "z^(1+10i)cos((z-1)/(z^13+z+1))",
+            "sum(-1+1/(1-z^n),n,1,100)",
+            "prod(exp(1+2/(ze(-k/5)-1)),k,1,5)",
+            "iterate((Z+1/Z)e(0.02),z,k,1,1000)",
+            "iterate(exp(z^Z),z,k,1,100)",
+            "iterateLoop(ZZ+z,0,k,1,100)",
+            "comp(zz,sin(zZ),cos(z/Z))"
+        };
+        public static readonly string[] EX_REAL = new string[]
+        {
+            "cos(xy)-cos(x)-cos(y)",
+            "min(sin(xy),tan(x),tan(y))",
+            "xround(y)-yround(x)",
+            "y-x|IterateLoop(x^X,x,k,1,30,y-X)",
+            "iterate1(kx/X+X/(y+k),sin(x+y),k,1,3)",
+            "iterate2(k/X+k/Y,XY,sin(x+y),cos(x-y),k,1,10,2)",
+            "comp1(xy,tan(X+x),Artanh(X-y))",
+            "comp2(xy,xx+yy,sin(X+Y),cos(X-Y),2)"
+        };
+        public static readonly string[] EX_CURVES = new string[]
+        {
+            "func(ga(x,100),0.0001)",
+            "func(sum(sin(2^kx)/2^k,k,0,100),-pi,pi,0.001)",
+            "func(beta(sinh(x),cosh(x),100),-2,2,0.00001)",
+            "polar(sqrt(cos(2theta)),theta,0,2pi,0.0001)",
+            "polar(cos(5k)cos(7k),k,0,2pi,0.001)",
+            "loop(polar(0.1jcos(5k+0.7jpi),k,0,pi),j,1,10)",
+            "param(cos(17k),cos(19k),k,0,pi,0.0001)",
+            "loop(param(cos(m)^k,sin(m)^k,m,0,p/2),k,1,10)"
+        };
+
+        public static readonly char FUNC_HEAD = '~', UNDERLINE = '_', DOLLAR = _D_;
+        public static readonly string FUNC = "α", POLAR = "β", PARAM = "γ", ITLOOP = "δ",
+            LOG = _L.ToString(), EXP = E_.ToString(), SQRT = _Q.ToString(), ABS = _A.ToString(), FACT = _F_.ToString(),
+            SIN = _S.ToString(), COS = _C.ToString(), TAN = _T.ToString(), // This should come first
+            AS = String.Concat(_A, SIN), AC = String.Concat(_A, COS), AT = String.Concat(_A, TAN),
+            SH = String.Concat(SIN, _H), CH = String.Concat(COS, _H), TH = String.Concat(TAN, _H),
+            ASH = String.Concat(AS, _H), ACH = String.Concat(AC, _H), ATH = String.Concat(AT, _H),
+            PROD = P_.ToString(), SUM = S_.ToString(), F = F_.ToString(),
+            GA = G_.ToString(), BETA = B_.ToString(), ZETA = _Z_.ToString(),
+            FLOOR = _F.ToString(), CEIL = _C.ToString(), ROUND = _R.ToString(), SIGN = _S.ToString(),
+            MOD = M_.ToString(), NCR = C_.ToString(), NPR = A_.ToString(), _MAX = MAX.ToString(), _MIN = MIN.ToString(),
+            IT = I_.ToString(), IT1 = String.Concat(MODE_1, IT), IT2 = String.Concat(MODE_2, IT),
+            COMP = J_.ToString(), COMP1 = String.Concat(MODE_1, COMP), COMP2 = String.Concat(MODE_2, COMP),
+            CONJ = J_.ToString(), E_SP = String.Concat(EXP, SP),
+            PI = P.ToString(), _GA = G.ToString();
+        private static Dictionary<string, string> Concat(Dictionary<string, string> s1, Dictionary<string, string> s2)
+            => s1.Concat(s2).ToDictionary(pair => pair.Key, pair => pair.Value); // Series first, Standard next
+        private static readonly Dictionary<string, string> COMMON_STANDARD = new()
+        {
+            { "log", LOG }, { "Log", LOG }, { "ln", LOG }, { "Ln", LOG },
+            { "exp", EXP }, { "Exp", EXP },
+            { "sqrt", SQRT }, { "Sqrt", SQRT },
+            { "abs", ABS }, { "Abs", ABS },
+            { "factorial", FACT }, { "Factorial", FACT }, { "fact", FACT }, { "Fact", FACT },
+            { "arsinh", ASH }, { "Arsinh", ASH }, { "asinh", ASH }, { "Asinh", ASH },
+            { "arcosh", ACH }, { "Arcosh", ACH }, { "acosh", ACH }, { "Acosh", ACH },
+            { "artanh", ATH }, { "Artanh", ATH }, { "atanh", ATH }, { "Atanh", ATH },
+            { "arcsin", AS }, { "Arcsin", AS }, { "asin", AS }, { "Asin", AS },
+            { "arccos", AC }, { "Arccos", AC }, { "acos", AC }, { "Acos", AC },
+            { "arctan", AT }, { "Arctan", AT }, { "atan", AT }, { "Atan", AT },
+            { "sinh", SH }, { "Sinh", SH },
+            { "cosh", CH }, { "Cosh", CH },
+            { "tanh", TH }, { "Tanh", TH },
+            { "sin", SIN }, { "Sin", SIN },
+            { "cos", COS }, { "Cos", COS },
+            { "tan", TAN }, { "Tan", TAN }
+        };
+        private static readonly Dictionary<string, string> COMMON_SERIES = AddSuffix(new()
+        {
+            { "Product", PROD }, { "product", PROD }, { "Prod", PROD }, { "prod", PROD },
+            { "Sum", SUM }, { "sum", SUM },
+            { "F", F },
+            { "Gamma", GA }, { "gamma", GA }, { "Ga", GA }, { "ga", GA },
+            { "Beta", BETA }, { "beta", BETA },
+            { "Zeta", ZETA }, { "zeta", ZETA }
+        }, UNDERLINE);
+        private static readonly Dictionary<string, string> COMMON = Concat(COMMON_SERIES, COMMON_STANDARD);
+        private static readonly Dictionary<string, string> REAL_STANDARD = AddSuffix(new()
+        {
+            { "Floor", FLOOR }, { "floor", FLOOR },
+            { "Ceil", CEIL }, { "ceil", CEIL },
+            { "Round", ROUND }, { "round", ROUND },
+            { "Sign", SIGN }, { "sign", SIGN }, { "Sgn", SIGN }, { "sgn", SIGN }
+        }, DOLLAR);
+        private static readonly Dictionary<string, string> REAL_SERIES = AddSuffix(new()
+        {
+            { "Mod", MOD }, { "mod", MOD },
+            { "nCr", NCR }, { "nPr", NPR },
+            { "Max", _MAX }, { "max", _MAX }, { "Min", _MIN }, { "min", _MIN },
+            { "Iterate1", IT1 }, { "iterate1", IT1 }, { "Iterate2", IT2 }, { "iterate2", IT2 },
+            { "Composite1", COMP1 }, { "composite1", COMP1 }, { "Comp1", COMP1 }, { "comp1", COMP1 },
+            { "Composite2", COMP2 }, { "composite2", COMP2 }, { "Comp2", COMP2 }, { "comp2", COMP2 }
+        }, UNDERLINE);
+        private static readonly Dictionary<string, string> REAL = Concat(REAL_SERIES, REAL_STANDARD);
+        private static readonly Dictionary<string, string> COMPLEX_STANDARD = new()
+        { { "conjugate", CONJ }, { "Conjugate", CONJ }, { "conj", CONJ }, { "Conj", CONJ }, { "e", E_SP } };
+        private static readonly Dictionary<string, string> COMPLEX_SERIES = AddSuffix(new()
+        {
+            { "Iterate", IT }, { "iterate", IT },
+            { "Composite", COMP }, { "composite", COMP }, { "Comp", COMP }, { "comp", COMP }
+        }, UNDERLINE);
+        private static readonly Dictionary<string, string> COMPLEX = Concat(COMPLEX_SERIES, COMPLEX_STANDARD);
+        private static readonly Dictionary<string, string> CONSTANTS = new()
+        { { "pi", PI }, { "Pi", PI }, { "gamma", _GA }, { "Gamma", _GA }, { "ga", _GA }, { "Ga", _GA } };
+        private static readonly Dictionary<string, string> TAGS = AddSuffix(new()
+        {
+            { "Func", FUNC }, { "func", FUNC },
+            { "Polar", POLAR }, { "polar", POLAR },
+            { "Param", PARAM }, { "param", PARAM },
+            { "IterateLoop", ITLOOP }, { "iterateLoop", ITLOOP }
+        }, UNDERLINE);
+
+        private static Dictionary<string, string> AddPrefixSuffix(Dictionary<string, string> dic)
+        {
+            Dictionary<string, string> Dic = new();
+            foreach (var kvp in dic) Dic[String.Concat(kvp.Key, '(')] = String.Concat(FUNC_HEAD, kvp.Value, '(');
+            return Dic;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        public static string Recover(string input, bool isComplex)
+        private static Dictionary<string, string> AddSuffix(Dictionary<string, string> dic, char suffix)
+        {
+            Dictionary<string, string> Dic = new();
+            foreach (var kvp in dic) Dic[kvp.Key] = String.Concat(kvp.Value, suffix);
+            return Dic;
+        }
+        private static string ReplaceBase(string input, Dictionary<string, string> dic)
+        {
+            foreach (var pair in dic) input = input.Replace(pair.Key, pair.Value);
+            return input;
+        }
+        private static string ReplaceCommon(string input) => ReplaceConstant(ReplaceBase(input, AddPrefixSuffix(COMMON)));
+        private static string ReplaceConstant(string input) => ReplaceBase(input, CONSTANTS);
+
+        protected static string ReplaceReal(string input) => ReplaceCommon(ReplaceBase(input, AddPrefixSuffix(REAL)));
+        protected static string ReplaceComplex(string input) => ReplaceCommon(ReplaceBase(input, AddPrefixSuffix(COMPLEX)));
+        public static string ReplaceCurves(string input) => ReplaceBase(input, AddPrefixSuffix(TAGS));
+    } /// Function name interpretors
+    public class RecoverMultiply : ReplaceTags
+    {
+        public static readonly string _ZZ_ = String.Concat(_Z, Z_), LR_BRA = "()",
+            BARRED_CHARS = String.Concat("\t!\"#$%&\':;<=>?@[\\]_`{}~", FUNC, POLAR, PARAM, ITLOOP);
+
+        private static readonly string VAR_REAL = String.Concat(_X, _Y, X_, Y_), VAR_COMPLEX = String.Concat(_Z, Z_, I),
+            CONST = String.Concat(E, P, G), ARITH = "+-*/^(,|"; // Function heads preceded by these require no anterior recovery
+        private static readonly List<string> ENTER_BLANK = new() { "\n", "\r", " " };
+
+        public static string Beautify(string input, bool isComplex)
+        {
+            ThrowException(!CheckParenthesis(input) || input.Contains(LR_BRA) || ContainsAny(input, BARRED_CHARS));
+            Func<string, string> replaceTags = isComplex ? ReplaceComplex : ReplaceReal;
+            return replaceTags(ReplaceSubstrings(input, ENTER_BLANK, String.Empty));
+        }
+        protected static string Recover(string input, bool isComplex)
         {
             int length = input.Length; if (length == 1) return input;
-            StringBuilder sb = new(length * 2);
-            sb.Append(input[0]); length--;
-            for (int i = 0; i < length; i++)
+            StringBuilder sb = new(length * 2); // The longest possible length
+            sb.Append(input[0]);
+            for (int i = 1; i < length; i++) // Should not use parallel
             {
-                if (AddOrNot(input[i], input[i + 1], isComplex)) sb.Append('*');
-                sb.Append(input[i + 1]);
+                if (AddOrNot(input[i - 1], input[i], isComplex)) sb.Append('*');
+                sb.Append(input[i]);
             }
             return sb.ToString();
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+
         private static bool AddOrNot(char c1, char c2, bool isComplex)
         {
             bool b1 = (IsConst(c1) || Char.IsNumber(c1)) && (IsConst(c2) || IsVar(c2, isComplex));
@@ -2335,75 +2178,430 @@ namespace FunctionGrapher2._0
             bool b6 = IsClose(c1) && IsOpen(c2);
             bool b7 = !IsArithmetic(c1) && IsFunctionHead(c2);
             return b1 || b2 || b3 || b4 || b5 || b6 || b7;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        } // Sensitive
         private static bool IsVar(char c, bool isComplex) => isComplex ? IsVarComplex(c) : IsVarReal(c);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsVarReal(char c) => "xyXY".Contains(c);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsVarComplex(char c) => "zZi".Contains(c);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsConst(char c) => "epg".Contains(c);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsArithmetic(char c) => "+-*/^(,|".Contains(c);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsOpen(char c) => c == '(';
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsClose(char c) => c == ')';
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsFunctionHead(char c) => c == '~';
-    }
-    public readonly struct DoubleMatrix
-    {
-        private readonly double[] data; private readonly int Rows, Columns;
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public DoubleMatrix(int rows, int columns) { data = new double[rows * columns]; Rows = rows; Columns = columns; }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public DoubleMatrix(double x) { data = new double[] { x }; Rows = Columns = 1; }
-        public double this[int row, int column]
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)] get => data[row * Columns + column];
-            [MethodImpl(MethodImplOptions.AggressiveInlining)] set => data[row * Columns + column] = value;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly unsafe double* Ptr() { fixed (double* ptr = &data[0]) { return ptr; } }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly unsafe double* RowPtr(int row) { fixed (double* ptr = &data[row * Columns]) { return ptr; } }
-    }
-    public class RealSub
-    {
-        private const double GAMMA = 0.57721566490153286060651209008240243;
-        private const int THRESHOLD = 10, STRUCTSIZE = 8; // Marshal.SizeOf<Double>()
-        private string input;
-        private int row, column, count;
-        private uint columnSIZE;
-        private DoubleMatrix x, y, X, Y;
-        private DoubleMatrix[] braValues;
+        private static bool IsVarReal(char c) => VAR_REAL.Contains(c);
+        private static bool IsVarComplex(char c) => VAR_COMPLEX.Contains(c);
+        private static bool IsConst(char c) => CONST.Contains(c);
+        private static bool IsArithmetic(char c) => ARITH.Contains(c);
+        private static bool IsFunctionHead(char c) => c == FUNC_HEAD;
+        public static bool IsOpen(char c) => c == '(';
+        public static bool IsClose(char c) => c == ')';
+    } /// Recovery of omitted '*'
 
-        #region Constructors
-        private void Initialize(string input, int row, int column)
+    /// <summary>
+    /// COMPUTATION SECTION
+    /// </summary>
+    public class ComplexSub : RecoverMultiply
+    {
+        #region Fields & Constructors
+        private static readonly int STRUCTSIZE = Marshal.SizeOf<Complex>();
+        private readonly uint columnSIZE, strideSIZE, residueSIZE; // For copying
+        private readonly int row, column, span, bulk; // For parallel copy chunks
+        private readonly ComplexMatrix z;
+        private readonly ComplexMatrix[] braValues; // To store values between parentheses pairs
+
+        private int count; // To log parentheses
+        private ComplexMatrix Z; // For substitution
+        private string input;
+
+        public ComplexSub(string input, ComplexMatrix? z, ComplexMatrix? Z, int row, int column)
         {
-            if (String.IsNullOrEmpty(input)) throw new FormatException();
-            this.input = RecoverMultiply.Recover(input, false);
-            braValues = new DoubleMatrix[MyString.CountChar(input, '(')];
-            x = y = X = Y = new(row, column);
-            this.row = row; this.column = column; columnSIZE = (uint)(column * STRUCTSIZE);
+            ThrowException(String.IsNullOrEmpty(input));
+            this.input = Recover(input, true); braValues = new ComplexMatrix[CountChars(this.input, "(")];
+            this.row = row; this.column = column; span = row / STEP; bulk = span * STEP; int temp = column * STRUCTSIZE;
+            columnSIZE = (uint)temp; strideSIZE = (uint)(temp * STEP); residueSIZE = (uint)(temp * (row - bulk));
+
+            if (z != null) this.z = (ComplexMatrix)z; if (Z != null) this.Z = (ComplexMatrix)Z;
         }
-        private void PopulateX(DoubleMatrix x, DoubleMatrix? y) { this.x = x; if (y.HasValue) { this.y = y.Value; } }
-        private void PopulateXNew(DoubleMatrix X, DoubleMatrix Y) { this.X = X; this.Y = Y; }
-        public RealSub(string input, double x = 0, double y = 0, double X = 0, double Y = 0)
-        { Initialize(input, 1, 1); PopulateX(new(x), new(y)); PopulateXNew(new(X), new(Y)); }
-        public RealSub(string input, int row, int column) => Initialize(input, row, column);
-        public RealSub(string input, DoubleMatrix x, int row, int column) : this(input, row, column) => PopulateX(x, null);
-        public RealSub(string input, DoubleMatrix x, DoubleMatrix y, int row, int column) : this(input, row, column)
-            => PopulateX(x, y);
-        public RealSub(string input, DoubleMatrix x, DoubleMatrix y, DoubleMatrix X, DoubleMatrix Y, int row, int column)
-            : this(input, row, column) { PopulateX(x, y); PopulateXNew(X, Y); }
+        public ComplexSub(string input, RealMatrix real, RealMatrix imaginary, int row, int column)
+            : this(input, InitilizeZ(real, imaginary, row, column), null, row, column) { }
+        private ComplexSub ObtainSub(string input, ComplexMatrix? Z) => new(input, z, Z, row, column);
+        private ComplexMatrix ObtainValue(string input) => new ComplexSub(input, z, Z, row, column).Obtain();
+        #endregion
+
+        #region Calculations
+        private unsafe ComplexMatrix Hypergeometric(string[] split)
+        {
+            ThrowInvalidLengths(split, new int[] { 4, 5 });
+            int n = split.Length == 5 ? RealSub.ToInt(split[4]) : 100;
+            ComplexMatrix sum = new(row, column), product = Const(Complex.ONE);
+            ComplexMatrix obtain(int index) => ObtainValue(split[index]);
+            ComplexMatrix _a = obtain(0), _b = obtain(1), _c = obtain(2), _input = obtain(3);
+            Parallel.For(0, row, r =>
+            {
+                Complex* prodPtr = product.RowPtr(r), sumPtr = sum.RowPtr(r), inputPtr = _input.RowPtr(r);
+                Complex* aPtr = _a.RowPtr(r), bPtr = _b.RowPtr(r), cPtr = _c.RowPtr(r);
+                for (int c = 0; c < column; c++, prodPtr++, sumPtr++, inputPtr++, aPtr++, bPtr++, cPtr++)
+                {
+                    for (int i = 0; i <= n; i++)
+                    {
+                        Complex temp = new(i - 1);
+                        if (i != 0) *prodPtr *= *inputPtr * (*aPtr + temp) * (*bPtr + temp) / (*cPtr + temp) / new Complex(i);
+                        *sumPtr += *prodPtr;
+                    }
+                }
+            });
+            return sum;
+        }
+        private unsafe ComplexMatrix Gamma(string[] split)
+        {
+            ThrowInvalidLengths(split, new int[] { 1, 2 });
+            int n = split.Length == 2 ? RealSub.ToInt(split[1]) : 100;
+            Complex tmp1 = Complex.ONE, tmpMG = new(-GAMMA);
+            ComplexMatrix product = Const(tmp1), _input = ObtainValue(split[0]), output = new(row, column);
+            Parallel.For(0, row, r =>
+            {
+                Complex* prodPtr = product.RowPtr(r), inputPtr = _input.RowPtr(r), outPtr = output.RowPtr(r);
+                for (int c = 0; c < column; c++, prodPtr++, inputPtr++, outPtr++)
+                {
+                    for (int i = 1; i <= n; i++)
+                    {
+                        Complex temp = *inputPtr / new Complex(i);
+                        *prodPtr *= Complex.Exp(temp) / (tmp1 + temp);
+                    }
+                    *outPtr = *prodPtr * Complex.Exp(tmpMG * *inputPtr) / *inputPtr;
+                }
+            });
+            return output;
+        }
+        private unsafe ComplexMatrix Beta(string[] split)
+        {
+            ThrowInvalidLengths(split, new int[] { 2, 3 });
+            int n = split.Length == 3 ? RealSub.ToInt(split[2]) : 100;
+            Complex tmp1 = Complex.ONE;
+            ComplexMatrix obtain(int index) => ObtainValue(split[index]);
+            ComplexMatrix product = Const(tmp1), input1 = obtain(0), input2 = obtain(1), output = new(row, column);
+            Parallel.For(0, row, r =>
+            {
+                Complex* prodPtr = product.RowPtr(r), outPtr = output.RowPtr(r);
+                Complex* input1Ptr = input1.RowPtr(r), input2Ptr = input2.RowPtr(r);
+                for (int c = 0; c < column; c++, prodPtr++, input1Ptr++, input2Ptr++, outPtr++)
+                {
+                    for (int i = 1; i <= n; i++)
+                    {
+                        Complex temp = new(i);
+                        *prodPtr *= tmp1 + *input1Ptr * *input2Ptr / (temp * (temp + *input1Ptr + *input2Ptr));
+                    }
+                    *outPtr = (*input1Ptr + *input2Ptr) / (*input1Ptr * *input2Ptr) / *prodPtr;
+                }
+            });
+            return output;
+        }
+        private unsafe ComplexMatrix Zeta(string[] split)
+        {
+            ThrowInvalidLengths(split, new int[] { 1, 2 });
+            int n = split.Length == 2 ? RealSub.ToInt(split[1]) : 50;
+            Complex tmp0 = Complex.ZERO, tmp1 = Complex.ONE, tmp2 = Complex.TWO;
+            ComplexMatrix sum = new(row, column), Sum = new(row, column), Coefficient = Const(tmp1), coefficient = Const(tmp1);
+            ComplexMatrix _input = ObtainValue(split[0]);
+            Parallel.For(0, row, r =>
+            {
+                Complex* coeffPtr = coefficient.RowPtr(r), CoeffPtr = Coefficient.RowPtr(r);
+                Complex* SumPtr = Sum.RowPtr(r), sumPtr = sum.RowPtr(r), inputPtr = _input.RowPtr(r);
+                for (int c = 0; c < column; c++, CoeffPtr++, coeffPtr++, SumPtr++, sumPtr++, inputPtr++)
+                {
+                    for (int i = 0; i <= n; i++)
+                    {
+                        *CoeffPtr /= tmp2; *coeffPtr = tmp1; *SumPtr = tmp0;
+                        for (int j = 0; j <= i; j++)
+                        {
+                            *SumPtr += *coeffPtr / ((new Complex(j + 1)) ^ *inputPtr);
+                            *coeffPtr *= new Complex((double)(j - i) / (double)(j + 1)); // (double) is not redundant
+                        }
+                        *SumPtr *= *CoeffPtr; *sumPtr += *SumPtr;
+                    }
+                    *sumPtr /= tmp1 - (tmp2 ^ (tmp1 - *inputPtr));
+                }
+            });
+            return sum;
+        }
+
+        private ComplexMatrix Sum(string[] split)
+        {
+            ThrowInvalidLengths(split, new int[] { 4 });
+            ComplexSub Buffer = ObtainSub(ReplaceLoop(split, 0, 1, 0), new(row, column));
+            For(RealSub.ToInt(split[2]), RealSub.ToInt(split[3]), i =>
+            { Buffer.input = Recover(ReplaceLoop(split, 0, 1, i), true); Buffer.count = 0; Plus(Buffer.Obtain(), Buffer.Z); });
+            return Buffer.Z;
+        }
+        private ComplexMatrix Product(string[] split)
+        {
+            ThrowInvalidLengths(split, new int[] { 4 });
+            ComplexSub Buffer = ObtainSub(ReplaceLoop(split, 0, 1, 0), Const(Complex.ONE));
+            For(RealSub.ToInt(split[2]), RealSub.ToInt(split[3]), i =>
+            { Buffer.input = Recover(ReplaceLoop(split, 0, 1, i), true); Buffer.count = 0; Multiply(Buffer.Obtain(), Buffer.Z); });
+            return Buffer.Z;
+        }
+        private ComplexMatrix Iterate(string[] split)
+        {
+            ThrowInvalidLengths(split, new int[] { 5 });
+            ComplexSub Buffer = ObtainSub(ReplaceLoop(split, 0, 2, 0), ObtainValue(split[1]));
+            For(RealSub.ToInt(split[3]), RealSub.ToInt(split[4]), i =>
+            { Buffer.input = Recover(ReplaceLoop(split, 0, 2, i), true); Buffer.count = 0; Buffer.Z = Buffer.Obtain(); });
+            return Buffer.Z;
+        }
+        private ComplexMatrix Composite(string[] split)
+        {
+            ComplexMatrix val = ObtainValue(split[0]);
+            for (int i = 1; i < split.Length; i++) val = ObtainSub(split[i], val).Obtain();
+            return val;
+        }
+        #endregion
+
+        #region Elements
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        public unsafe static ComplexMatrix InitilizeZ(RealMatrix x, RealMatrix y, int row, int column)
+        {
+            ComplexMatrix z = new(row, column);
+            Parallel.For(0, row, i => {
+                Complex* zPtr = z.RowPtr(i); double* xPtr = x.RowPtr(i), yPtr = y.RowPtr(i);
+                for (int j = 0; j < column; j++, zPtr++, xPtr++, yPtr++) *zPtr = new(*xPtr, *yPtr);
+            });
+            return z;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe ComplexMatrix Const(Complex c)
+        {
+            ComplexMatrix output = new(row, column); Complex* srcPtr = output.Ptr();
+            for (int q = 0; q < column; q++, srcPtr++) *srcPtr = c; srcPtr = output.Ptr();
+            Parallel.For(1, row, p => { Unsafe.CopyBlock(output.RowPtr(p), srcPtr, columnSIZE); });
+            return output;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe ComplexMatrix Copy(ComplexMatrix src)
+        {
+            ComplexMatrix output = new(row, column);
+            Parallel.For(0, span, p => { Unsafe.CopyBlock(output.RowPtr(p * STEP), src.RowPtr(p * STEP), strideSIZE); });
+            if (residueSIZE != 0) Unsafe.CopyBlock(output.RowPtr(bulk), src.RowPtr(bulk), residueSIZE);
+            return output;
+        } // Passing matrices to mutable variables
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe ComplexMatrix Negate(ComplexMatrix src)
+        {
+            ComplexMatrix output = new(row, column);
+            Parallel.For(0, row, p => {
+                Complex* destPtr = output.RowPtr(p), srcPtr = src.RowPtr(p);
+                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr = -*srcPtr;
+            });
+            return output;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe void Plus(ComplexMatrix src, ComplexMatrix dest) => Parallel.For(0, row, p =>
+        {
+            Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr += *srcPtr;
+        });
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe void Subtract(ComplexMatrix src, ComplexMatrix dest) => Parallel.For(0, row, p =>
+        {
+            Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr -= *srcPtr;
+        });
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe void Multiply(ComplexMatrix src, ComplexMatrix dest) => Parallel.For(0, row, p =>
+        {
+            Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr *= *srcPtr;
+        });
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe void Divide(ComplexMatrix src, ComplexMatrix dest) => Parallel.For(0, row, p =>
+        {
+            Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr /= *srcPtr;
+        });
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe void Power(ComplexMatrix src, ComplexMatrix dest) => Parallel.For(0, row, p =>
+        {
+            Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr = *srcPtr ^ *destPtr;
+        });
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe void FuncSub(ComplexMatrix val, Func<Complex, Complex> function) => Parallel.For(0, row, r =>
+        {
+            Complex* valuePtr = val.RowPtr(r);
+            for (int c = 0; c < column; c++, valuePtr++) *valuePtr = function(*valuePtr);
+        });
+        #endregion
+
+        #region Assembly
+        private ComplexMatrix Transform(string input) => input[0] switch
+        {
+            SB => braValues[Int32.Parse(TryBraNum(input))],
+            _Z => z,
+            Z_ => Z,
+            I => Const(Complex.I),
+            E => Const(new(Math.E)),
+            P => Const(new(Math.PI)),
+            G => Const(new(GAMMA)),
+            _ => Const(new(Double.Parse(input)))
+        };
+        private ComplexMatrix BreakPower(string input)
+        {
+            string[] power_chunks = PrepareBreakPower(input, THRESHOLD);
+            ComplexMatrix tower = Copy(PowerCore(power_chunks[^1]));
+            for (int k = power_chunks.Length - 2; k >= 0; k--)
+            {
+                string[] power_split = SplitByChars(power_chunks[k], "^"); // Special for power
+                for (int m = power_split.Length - 1; m >= 0; m--) Power(Transform(power_split[m]), tower);
+            }
+            return tower;
+        }
+        private ComplexMatrix PowerCore(string input)
+        {
+            if (!input.Contains('^')) return Transform(input);
+            if (CountChars(input, "^") > THRESHOLD) return BreakPower(input);
+
+            string[] power_split = SplitByChars(input, "^"); ComplexMatrix tower = Copy(Transform(power_split[^1]));
+            for (int k = power_split.Length - 2; k >= 0; k--) Power(Transform(power_split[k]), tower);
+            return tower;
+        }
+        private ComplexMatrix BreakMultiplyDivide(string input)
+        {
+            var (prod_chunks, signs) = PrepareBreakPSMD(String.Concat('*', input), "*/", '*', THRESHOLD);
+            ComplexMatrix product = Copy(MultiplyDivideCore(TrimStartChar(prod_chunks[0], '*')));
+            for (int j = 1; j < prod_chunks.Length; j++)
+                Multiply(MultiplyDivideCore(signs[j - 1] == SUB_CHARS[0] ? prod_chunks[j] : String.Concat("1/", prod_chunks[j])), product);
+            return product;
+        }
+        private ComplexMatrix MultiplyDivideCore(string input)
+        {
+            if (!ContainsAny(input, "*/")) return PowerCore(input);
+            if (CountChars(input, "*/") > THRESHOLD) return BreakMultiplyDivide(input);
+
+            var (product_split, mdBuilder) = GetMultiplyDivideComponents(input);
+            ComplexMatrix product = Copy(PowerCore(product_split[0]));
+            for (int j = 1; j < product_split.Length; j++)
+            {
+                Action<ComplexMatrix, ComplexMatrix> operation = mdBuilder[j - 1] == '*' ? Multiply : Divide;
+                operation(PowerCore(product_split[j]), product);
+            }
+            return product;
+        }
+        private ComplexMatrix BreakPlusSubtract(string input)
+        {
+            var (sum_chunks, signs) = PrepareBreakPSMD(input[0] == '-' ? input : String.Concat('+', input), "+-", '+', THRESHOLD);
+            ComplexMatrix sum = Copy(PlusSubtractCore(TrimStartChar(sum_chunks[0], '+')));
+            for (int i = 1; i < sum_chunks.Length; i++)
+                Plus(PlusSubtractCore(signs[i - 1] == SUB_CHARS[0] ? sum_chunks[i] : String.Concat('-', sum_chunks[i])), sum);
+            return sum;
+        }
+        private ComplexMatrix PlusSubtractCore(string input)
+        {
+            if (!ContainsAny(input, "+-")) return MultiplyDivideCore(input);
+            if (CountChars(input, "+-") > THRESHOLD) return BreakPlusSubtract(input);
+
+            var (sum_split, psBuilder) = GetPlusSubtractComponents(input);
+            Func<ComplexMatrix, ComplexMatrix> function = psBuilder[0] == '+' ? Copy : Negate; // Special for "+-"
+            ComplexMatrix sum = function(MultiplyDivideCore(sum_split[0]));
+            for (int i = 1; i < sum_split.Length; i++)
+            {
+                Action<ComplexMatrix, ComplexMatrix> operation = psBuilder[i] == '+' ? Plus : Subtract;
+                operation(MultiplyDivideCore(sum_split[i]), sum);
+            }
+            return sum;
+        }
+        private ComplexMatrix ComputeBraFreePart(string input)
+        {
+            if (Int32.TryParse(input, out int result)) return Const(new(result)); // Double.TryParse is much slower
+            if (input[0] == SB && Int32.TryParse(TryBraNum(input), out int _result)) return braValues[_result];
+            return Copy(PlusSubtractCore(input)); // Necessary
+        }
+
+        private string SeriesSub(string input)
+        {
+            var (i, end, temp) = PrepareSeriesSub(input);
+            Func<string[], ComplexMatrix> braFunc = input[i - 1] switch
+            {
+                F_ => Hypergeometric,
+                G_ => Gamma,
+                B_ => Beta,
+                _Z_ => Zeta,
+                S_ => Sum,
+                P_ => Product,
+                I_ => Iterate,
+                J_ => Composite
+            };
+            braValues[count] = braFunc(ReplaceRecover(temp));
+            return Replace(input, BracketSub(count++), i - 2, end);
+        }
+        private void SubCore(string temp, int begin, ComplexMatrix subValue, ref int tagL)
+        {
+            if (begin == 0) return;
+            bool isA = begin > 1 ? temp[begin - 2] != _A : false; // Should not simplify
+            switch (temp[begin - 1])
+            {
+                case _S: FuncSub(subValue, isA ? Complex.Sin : Complex.Asin); tagL = isA ? 1 : 2; break;
+                case _C: FuncSub(subValue, isA ? Complex.Cos : Complex.Acos); tagL = isA ? 1 : 2; break;
+                case _T: FuncSub(subValue, isA ? Complex.Tan : Complex.Atan); tagL = isA ? 1 : 2; break;
+                case _H:
+                    bool IsA = temp[begin - 3] != _A; // Needn't check because of ~
+                    FuncSub(subValue, temp[begin - 2] switch
+                    {
+                        _S => IsA ? Complex.Sinh : Complex.Asinh,
+                        _C => IsA ? Complex.Cosh : Complex.Acosh,
+                        _T => IsA ? Complex.Tanh : Complex.Atanh
+                    }); tagL = IsA ? 2 : 3; break;
+                case _A: FuncSub(subValue, c => new(Complex.Modulus(c))); tagL = 1; break;
+                case J_: FuncSub(subValue, Complex.Conjugate); tagL = 1; break;
+                case I_: FuncSub(subValue, Complex.Log); tagL = 1; break;
+                case E_: FuncSub(subValue, Complex.Exp); tagL = 1; break;
+                case SP: FuncSub(subValue, Complex.Ei); tagL = 2; break; // Special for complex
+                case _Q: FuncSub(subValue, Complex.Sqrt); tagL = 1; break;
+                case _F_: FuncSub(subValue, Complex.Factorial); tagL = 1; break;
+                default: break;
+            }
+        }
+        public ComplexMatrix Obtain()
+        {
+            if (!input.Contains('(')) return ComputeBraFreePart(input);
+            string temp = input; ComplexMatrix subValue;
+            while (temp.Contains(UNDERLINE)) temp = SeriesSub(temp);
+
+            var (length, begin, end, tagL) = PrepareLoop(temp);
+            for (int i = 0; i < length; i++)
+            {
+                ResetBeginEnd(temp, ref begin, ref end);
+                subValue = ComputeBraFreePart(BraFreePart(temp, begin, end));
+                SubCore(temp, begin, subValue, ref tagL);
+                braValues[count] = subValue;
+                SubstituteTemp(ref temp, ref begin, end, ref tagL, ref count);
+            }
+            return ComputeBraFreePart(temp);
+        }
+        #endregion
+    } /// Computing complex-variable expressions
+    public class RealSub : RecoverMultiply
+    {
+        #region Fields & Constructors
+        private static readonly int STRUCTSIZE = Marshal.SizeOf<Double>();
+        private readonly uint columnSIZE, strideSIZE, residueSIZE; // For copying
+        private readonly int row, column, span, bulk; // For parallel copy chunks
+        private readonly RealMatrix x, y;
+        private readonly RealMatrix[] braValues; // To store values between parentheses pairs
+
+        private int count; // To log parentheses
+        private RealMatrix X, Y; // For substitution
+        private string input;
+
+        public RealSub(string input, RealMatrix? x, RealMatrix? y, RealMatrix? X, RealMatrix? Y, int row, int column)
+        {
+            ThrowException(String.IsNullOrEmpty(input));
+            this.input = Recover(input, false); braValues = new RealMatrix[CountChars(this.input, "(")];
+            this.row = row; this.column = column; span = row / STEP; bulk = span * STEP; int temp = column * STRUCTSIZE;
+            columnSIZE = (uint)temp; strideSIZE = (uint)(temp * STEP); residueSIZE = (uint)(temp * (row - bulk));
+
+            if (x != null) this.x = (RealMatrix)x; if (y != null) this.y = (RealMatrix)y;
+            if (X != null) this.X = (RealMatrix)X; if (Y != null) this.Y = (RealMatrix)Y;
+        }
+        private RealSub ObtainSub(string input, RealMatrix? X, RealMatrix? Y) => new(input, x, y, X, Y, row, column);
+        private RealMatrix ObtainValue(string input) => new RealSub(input, x, y, X, Y, row, column).Obtain();
+        public static double Obtain(string input, double x = 0.0) => new RealSub(input, new(x), null, null, null, 1, 1).Obtain()[0, 0];
+        public static int ToInt(string input) => (int)Obtain(input); // Often bound to MyString.For
         #endregion
 
         #region Basic Calculations
-        private static double MySign(double value) => Math.Sign(value);
-        public static double Factorial(double n) => n < 0 ? Double.NaN : Math.Floor(n) == 0 ? 1 : Math.Floor(n) * Factorial(n - 1);
+        public static double Factorial(double n) => n < 0 ? Double.NaN : (Math.Floor(n) == 0 ? 1 : Math.Floor(n) * Factorial(n - 1));
         private static double Mod(double a, double n) => n != 0 ? a % Math.Abs(n) : Double.NaN;
         private static double Combination(double n, double r)
         {
@@ -2412,1045 +2610,589 @@ namespace FunctionGrapher2._0
             else if (n > 0) return Combination(n - 1, r - 1) + Combination(n - 1, r);
             else if (r > 0) return Combination(n + 1, r) - Combination(n, r - 1);
             else return Combination(n + 1, r + 1) - Combination(n, r + 1);
-        }
+        } // Generalized Pascal's triangle
         private static double Permutation(double n, double r)
         {
             if (r < 0) return 0;
             else if (r == 0) return 1;
             else return (n - r + 1) * Permutation(n, r - 1);
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe DoubleMatrix ProcessMCP(string input, Func<double, double, double> operation)
+
+        private unsafe RealMatrix ProcessMCP(string[] split, Func<double, double, double> function)
         {
-            string[] split = MyString.ReplaceRecover(input);
-            if (split.Length != 2) throw new FormatException();
-            DoubleMatrix temp_1 = new RealSub(split[0], x, y, X, Y, row, column).Obtain();
-            DoubleMatrix temp_2 = new RealSub(split[1], x, y, X, Y, row, column).Obtain();
-            DoubleMatrix output = new(row, column);
+            ThrowInvalidLengths(split, new int[] { 2 });
+            RealMatrix input1 = ObtainValue(split[0]), input2 = ObtainValue(split[1]), output = new(row, column);
             Parallel.For(0, row, r => {
-                double* temp1Ptr = temp_1.RowPtr(r), temp2Ptr = temp_2.RowPtr(r), outPtr = output.RowPtr(r);
-                for (int c = 0; c < column; c++, outPtr++, temp1Ptr++, temp2Ptr++) *outPtr = operation(*temp1Ptr, *temp2Ptr);
+                double* input1Ptr = input1.RowPtr(r), input2Ptr = input2.RowPtr(r), outPtr = output.RowPtr(r);
+                for (int c = 0; c < column; c++, outPtr++, input1Ptr++, input2Ptr++) *outPtr = function(*input1Ptr, *input2Ptr);
             });
             return output;
         }
-        private DoubleMatrix Mod(string input) => ProcessMCP(input, (a, b) => Mod(a, b));
-        private DoubleMatrix Combination(string input) => ProcessMCP(input, (a, b) => Combination(Math.Floor(a), Math.Floor(b)));
-        private DoubleMatrix Permutation(string input) => ProcessMCP(input, (a, b) => Permutation(Math.Floor(a), Math.Floor(b)));
-        private static double Max(double[] input)
+        private unsafe RealMatrix ProcessMinMax(string[] split, Func<double[], double> function)
         {
-            if (input.Length == 1) return input[0];
-            return Math.Max(input[0], Max(input.Skip(1).ToArray()));
-        }
-        private static double Min(double[] input)
-        {
-            if (input.Length == 1) return input[0];
-            return Math.Min(input[0], Min(input.Skip(1).ToArray()));
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe DoubleMatrix ProcessMinMax(string input, Func<double[], double> operation)
-        {
-            string[] split = MyString.ReplaceRecover(input); int length = split.Length;
-            DoubleMatrix[] output = new DoubleMatrix[length];
-            for (int i = 0, _length = output.Length; i < _length; i++) output[i] = new RealSub(split[i], x, y, X, Y, row, column).Obtain();
-            DoubleMatrix Output = new(row, column);
-            Parallel.For(0, row, () => new double[length], (r, state, values) =>
+            RealMatrix[] val = new RealMatrix[split.Length];
+            for (int i = 0; i < val.Length; i++) val[i] = ObtainValue(split[i]);
+
+            RealMatrix output = new(row, column);
+            Parallel.For(0, row, () => new double[split.Length], (r, state, minMax) =>
             {
-                double* OutPtr = Output.RowPtr(r);
-                for (int c = 0; c < column; c++, OutPtr++)
+                double* outputPtr = output.RowPtr(r);
+                for (int c = 0; c < column; c++, outputPtr++)
                 {
-                    for (int i = 0; i < length; i++) values[i] = output[i][r, c];
-                    *OutPtr = operation(values);
+                    for (int i = 0; i < split.Length; i++) minMax[i] = val[i][r, c];
+                    *outputPtr = function(minMax);
                 }
-                return values;
+                return minMax;
             }, _ => { });
-            return Output;
+            return output;
         }
-        private DoubleMatrix Max(string input) => ProcessMinMax(input, values => values.Max());
-        private DoubleMatrix Min(string input) => ProcessMinMax(input, values => values.Min());
+
+        private RealMatrix Mod(string[] split) => ProcessMCP(split, (a, b) => Mod(a, b));
+        private RealMatrix Combination(string[] split) => ProcessMCP(split, (a, b) => Combination(Math.Floor(a), Math.Floor(b)));
+        private RealMatrix Permutation(string[] split) => ProcessMCP(split, (a, b) => Permutation(Math.Floor(a), Math.Floor(b)));
+        private RealMatrix Max(string[] split) => ProcessMinMax(split, val => val.Max());
+        private RealMatrix Min(string[] split) => ProcessMinMax(split, val => val.Min());
         #endregion
 
         #region Additional Calculations
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe DoubleMatrix Hypergeometric(string input)
+        private unsafe RealMatrix Hypergeometric(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input); int length = split.Length;
-            if (length > 5 || length < 4) throw new FormatException();
-            int n = length == 5 ? MyString.ToInt(split[4]) : 100;
-            DoubleMatrix sum = new(row, column), product = Const(1);
-            DoubleMatrix input_new = new RealSub(split[3], x, y, X, Y, row, column).Obtain();
-            DoubleMatrix _a = new RealSub(split[0], row, column).Obtain();
-            DoubleMatrix _b = new RealSub(split[1], row, column).Obtain();
-            DoubleMatrix _c = new RealSub(split[2], row, column).Obtain();
-            Parallel.For(0, row, r => {
-                double* prodPtr = product.RowPtr(r), sumPtr = sum.RowPtr(r), inputPtr = input_new.RowPtr(r);
+            ThrowInvalidLengths(split, new int[] { 4, 5 });
+            int n = split.Length == 5 ? ToInt(split[4]) : 100;
+            RealMatrix sum = new(row, column), product = Const(1);
+            RealMatrix obtain(int index) => ObtainValue(split[index]);
+            RealMatrix _a = obtain(0), _b = obtain(1), _c = obtain(2), _input = obtain(3);
+            Parallel.For(0, row, r =>
+            {
+                double* prodPtr = product.RowPtr(r), sumPtr = sum.RowPtr(r), inputPtr = _input.RowPtr(r);
                 double* aPtr = _a.RowPtr(r), bPtr = _b.RowPtr(r), cPtr = _c.RowPtr(r);
                 for (int c = 0; c < column; c++, prodPtr++, sumPtr++, inputPtr++, aPtr++, bPtr++, cPtr++)
-                    for (int i = 1; i <= n; i++)
+                {
+                    for (int i = 0; i <= n; i++)
                     {
-                        if(i != 0) *prodPtr *= *inputPtr * (*aPtr + i - 1) * (*bPtr + i - 1) / (*cPtr + i - 1) / i;
+                        double temp = i - 1;
+                        if (i != 0) *prodPtr *= *inputPtr * (*aPtr + temp) * (*bPtr + temp) / (*cPtr + temp) / i;
                         *sumPtr += *prodPtr;
                     }
+                }
             });
             return sum;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe DoubleMatrix Gamma(string input)
+        private unsafe RealMatrix Gamma(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input); int length = split.Length;
-            if (length > 2) throw new FormatException();
-            int n = length == 2 ? MyString.ToInt(split[1]) : 100;
-            DoubleMatrix product = Const(1), temp_value = new RealSub(split[0], x, y, X, Y, row, column).Obtain();
-            Parallel.For(0, row, r => {
-                double* tempPtr = temp_value.RowPtr(r), prodPtr = product.RowPtr(r);
-                for (int c = 0; c < column; c++, prodPtr++, tempPtr++) for (int i = 1; i <= n; i++)
-                        *prodPtr *= Math.Exp(*tempPtr / i) / (1 + *tempPtr / i);
-            });
-            DoubleMatrix output = new(row, column);
-            Parallel.For(0, row, r => {
-                double* outPtr = output.RowPtr(r), prodPtr = product.RowPtr(r), tempPtr = temp_value.RowPtr(r);
-                for (int c = 0; c < column; c++, outPtr++, prodPtr++, tempPtr++)
-                    *outPtr = *prodPtr * Math.Exp(-GAMMA * *tempPtr) / *tempPtr;
+            ThrowInvalidLengths(split, new int[] { 1, 2 });
+            int n = split.Length == 2 ? ToInt(split[1]) : 100;
+            RealMatrix product = Const(1), _input = ObtainValue(split[0]), output = new(row, column);
+            Parallel.For(0, row, r =>
+            {
+                double* prodPtr = product.RowPtr(r), inputPtr = _input.RowPtr(r), outPtr = output.RowPtr(r);
+                for (int c = 0; c < column; c++, prodPtr++, inputPtr++, outPtr++)
+                {
+                    for (int i = 1; i <= n; i++)
+                    {
+                        double temp = *inputPtr / i;
+                        *prodPtr *= Math.Exp(temp) / (1 + temp);
+                    }
+                    *outPtr = *prodPtr * Math.Exp(-GAMMA * *inputPtr) / *inputPtr;
+                }
             });
             return output;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe DoubleMatrix Beta(string input)
+        private unsafe RealMatrix Beta(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input); int length = split.Length;
-            if (length > 3 || length < 2) throw new FormatException();
-            int n = length == 3 ? MyString.ToInt(split[2]) : 100;
-            DoubleMatrix product = Const(1);
-            DoubleMatrix temp_1 = new RealSub(split[0], x, y, X, Y, row, column).Obtain();
-            DoubleMatrix temp_2 = new RealSub(split[1], x, y, X, Y, row, column).Obtain();
-            Parallel.For(0, row, r => {
-                double* temp1Ptr = temp_1.RowPtr(r), temp2Ptr = temp_2.RowPtr(r), prodPtr = product.RowPtr(r);
-                for (int c = 0; c < column; c++, prodPtr++, temp1Ptr++, temp2Ptr++) for (int i = 1; i <= n; i++)
-                        *prodPtr *= 1 + *temp1Ptr * *temp2Ptr / (i * (i + *temp1Ptr + *temp2Ptr));
-            });
-            DoubleMatrix output = new(row, column);
-            Parallel.For(0, row, r => {
-                double* outPtr = output.RowPtr(r), prodPtr = product.RowPtr(r), 
-                temp1Ptr = temp_1.RowPtr(r), temp2Ptr = temp_2.RowPtr(r);
-                for (int c = 0; c < column; c++, outPtr++, temp1Ptr++, temp2Ptr++, prodPtr++)
-                    *outPtr = (*temp1Ptr + *temp2Ptr) / (*temp1Ptr * *temp2Ptr) / *prodPtr;
+            ThrowInvalidLengths(split, new int[] { 2, 3 });
+            int n = split.Length == 3 ? ToInt(split[2]) : 100;
+            RealMatrix obtain(int index) => ObtainValue(split[index]);
+            RealMatrix product = Const(1), input1 = obtain(0), input2 = obtain(1), output = new(row, column);
+            Parallel.For(0, row, r =>
+            {
+                double* prodPtr = product.RowPtr(r), outPtr = output.RowPtr(r);
+                double* input1Ptr = input1.RowPtr(r), input2Ptr = input2.RowPtr(r);
+                for (int c = 0; c < column; c++, prodPtr++, input1Ptr++, input2Ptr++, outPtr++)
+                {
+                    for (int i = 1; i <= n; i++) *prodPtr *= 1 + *input1Ptr * *input2Ptr / (i * (i + *input1Ptr + *input2Ptr));
+                    *outPtr = (*input1Ptr + *input2Ptr) / (*input1Ptr * *input2Ptr) / *prodPtr;
+                }
             });
             return output;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe DoubleMatrix Zeta(string input)
+        private unsafe RealMatrix Zeta(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input); int length = split.Length;
-            if (length > 2) throw new FormatException();
-            int n = length == 2 ? MyString.ToInt(split[1]) : 50;
-            DoubleMatrix sum = new(row, column), Sum = new(row, column), Coefficient = Const(1), coefficient = Const(1);
-            DoubleMatrix temp_value = new RealSub(split[0], x, y, X, Y, row, column).Obtain();
+            ThrowInvalidLengths(split, new int[] { 1, 2 });
+            int n = split.Length == 2 ? ToInt(split[1]) : 50;
+            RealMatrix sum = new(row, column), Sum = new(row, column), Coefficient = Const(1), coefficient = Const(1);
+            RealMatrix _input = ObtainValue(split[0]);
             Parallel.For(0, row, r =>
             {
                 double* coeffPtr = coefficient.RowPtr(r), CoeffPtr = Coefficient.RowPtr(r);
-                double* SumPtr = Sum.RowPtr(r), sumPtr = sum.RowPtr(r);
-                double* tempPtr = temp_value.RowPtr(r);
-                for (int c = 0; c < column; c++, CoeffPtr++, coeffPtr++, SumPtr++, sumPtr++, tempPtr++)
+                double* SumPtr = Sum.RowPtr(r), sumPtr = sum.RowPtr(r), inputPtr = _input.RowPtr(r);
+                for (int c = 0; c < column; c++, CoeffPtr++, coeffPtr++, SumPtr++, sumPtr++, inputPtr++)
                 {
                     for (int i = 0; i <= n; i++)
                     {
                         *CoeffPtr /= 2; *coeffPtr = 1; *SumPtr = 0;
                         for (int j = 0; j <= i; j++)
                         {
-                            *SumPtr += *coeffPtr / Math.Pow(j + 1, *tempPtr);
-                            *coeffPtr *= (double)(j - i) / (double)(j + 1); // Double is not redundant here
+                            *SumPtr += *coeffPtr / Math.Pow(j + 1, *inputPtr);
+                            *coeffPtr *= (double)(j - i) / (double)(j + 1); // (double) is not redundant
                         }
                         *SumPtr *= *CoeffPtr; *sumPtr += *SumPtr;
                     }
-                    *sumPtr /= 1 - Math.Pow(2, 1 - *tempPtr);
+                    *sumPtr /= 1 - Math.Pow(2, 1 - *inputPtr);
                 }
             });
             return sum;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix Sum(string input)
+
+        private RealMatrix Sum(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input);
-            if (split.Length != 4) throw new FormatException();
-            DoubleMatrix sum = new(row, column);
-            for (int i = MyString.ToInt(split[2]), int3 = MyString.ToInt(split[3]); i <= int3; i++)
-                Plus(new RealSub(split[0].Replace(split[1], MyString.IndexSub(i)), x, y, X, Y, row, column).Obtain(), sum);
-            return sum;
+            ThrowInvalidLengths(split, new int[] { 4 });
+            RealSub Buffer = ObtainSub(ReplaceLoop(split, 0, 1, 0), new(row, column), null);
+            For(ToInt(split[2]), ToInt(split[3]), i =>
+            { Buffer.input = Recover(ReplaceLoop(split, 0, 1, i), false); Buffer.count = 0; Plus(Buffer.Obtain(), Buffer.X); });
+            return Buffer.X;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix Product(string input)
+        private RealMatrix Product(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input);
-            if (split.Length != 4) throw new FormatException();
-            DoubleMatrix product = Const(1);
-            for (int i = MyString.ToInt(split[2]), int3 = MyString.ToInt(split[3]); i <= int3; i++)
-                Multiply(new RealSub(split[0].Replace(split[1], MyString.IndexSub(i)), x, y, X, Y, row, column).Obtain(), product);
-            return product;
+            ThrowInvalidLengths(split, new int[] { 4 });
+            RealSub Buffer = ObtainSub(ReplaceLoop(split, 0, 1, 0), Const(1), null);
+            For(ToInt(split[2]), ToInt(split[3]), i =>
+            { Buffer.input = Recover(ReplaceLoop(split, 0, 1, i), false); Buffer.count = 0; Multiply(Buffer.Obtain(), Buffer.X); });
+            return Buffer.X;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix Iterate1(string input)
+        private RealMatrix Iterate1(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input);
-            if (split.Length != 5) throw new FormatException();
-            DoubleMatrix value = new RealSub(split[1], x, y, row, column).Obtain();
-            DoubleMatrix temp = new(row, column);
-            for (int i = MyString.ToInt(split[3]), int4 = MyString.ToInt(split[4]); i <= int4; i++)
-                value = new RealSub(split[0].Replace(split[2], MyString.IndexSub(i)), x, y, value, temp, row, column).Obtain();
-            return value;
+            ThrowInvalidLengths(split, new int[] { 5 });
+            RealSub Buffer = ObtainSub(ReplaceLoop(split, 0, 2, 0), ObtainValue(split[1]), null);
+            For(ToInt(split[3]), ToInt(split[4]), i =>
+            { Buffer.input = Recover(ReplaceLoop(split, 0, 2, i), false); Buffer.count = 0; Buffer.X = Buffer.Obtain(); });
+            return Buffer.X;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix Iterate2(string input)
+        private RealMatrix Iterate2(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input);
-            if (split.Length != 8) throw new FormatException();
-            DoubleMatrix value1 = new RealSub(split[2], x, y, row, column).Obtain();
-            DoubleMatrix value2 = new RealSub(split[3], x, y, row, column).Obtain();
-            for (int i = MyString.ToInt(split[5]), int6 = MyString.ToInt(split[6]); i <= int6; i++)
+            ThrowInvalidLengths(split, new int[] { 8 });
+            RealSub obtainSub(string s) => ObtainSub(s, ObtainValue(split[2]), ObtainValue(split[3]));
+            RealSub Buffer1 = obtainSub(ReplaceLoop(split, 0, 4, 0)), Buffer2 = obtainSub(ReplaceLoop(split, 1, 4, 0));
+
+            string obtainInput(int s, int i) => Recover(ReplaceLoop(split, s, 4, i), false);
+            For(ToInt(split[5]), ToInt(split[6]), i =>
             {
-                DoubleMatrix temp1 = value1, temp2 = value2;
-                value1 = new RealSub(split[0].Replace(split[4], MyString.IndexSub(i)), x, y, temp1, temp2, row, column).Obtain();
-                value2 = new RealSub(split[1].Replace(split[4], MyString.IndexSub(i)), x, y, temp1, temp2, row, column).Obtain();
-            }
-            return split[7] == "1" ? value1 : value2;
+                Buffer1.input = obtainInput(0, i); Buffer2.input = obtainInput(1, i);
+                Buffer1.count = Buffer2.count = 0;
+                RealMatrix temp1 = Buffer1.Obtain(), temp2 = Buffer2.Obtain(); // Necessary
+                Buffer1.X = Buffer2.X = temp1; Buffer1.Y = Buffer2.Y = temp2;
+            });
+            return ModeChooser(split[^1], Buffer1.X, Buffer1.Y, row, column);
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix Composite1(string input)
+        private RealMatrix Composite1(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input);
-            DoubleMatrix value = new RealSub(split[0], x, y, row, column).Obtain();
-            DoubleMatrix temp = new(row, column);
-            for (int i = 0, length = split.Length - 1; i < length; i++) value = new RealSub(split[i + 1], x, y, value, temp, row, column).Obtain();
-            return value;
+            RealMatrix val = ObtainValue(split[0]);
+            for (int i = 1; i < split.Length; i++) val = ObtainSub(split[i], val, null).Obtain();
+            return val;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix Composite2(string input)
+        private RealMatrix Composite2(string[] split)
         {
-            string[] split = MyString.ReplaceRecover(input);
-            int length = split.Length, _length = (length / 2) - 1;
-            if (length % 2 == 0) throw new FormatException();
-            string[] comp_1 = new string[_length], comp_2 = new string[_length];
-            for (int i = 0; i < _length; i++) { comp_1[i] = split[2 * i + 2]; comp_2[i] = split[2 * i + 3]; }
-            DoubleMatrix[] value = new DoubleMatrix[2];
-            value[0] = new RealSub(split[0], x, y, row, column).Obtain();
-            value[1] = new RealSub(split[1], x, y, row, column).Obtain();
-            for (int i = 0; i < _length; i++)
+            ThrowException(split.Length % 2 == 0); int length = split.Length / 2 - 1;
+            string[] comp_1 = new string[length], comp_2 = new string[length];
+            for (int i = 0, j = 2; i < length; i++) { comp_1[i] = split[j++]; comp_2[i] = split[j++]; }
+
+            RealMatrix val_1 = ObtainValue(split[0]), val_2 = ObtainValue(split[1]);
+            for (int i = 0; i < length; i++)
             {
-                DoubleMatrix temp_1 = value[0], temp_2 = value[1];
-                value[0] = new RealSub(comp_1[i], x, y, temp_1, temp_2, row, column).Obtain();
-                value[1] = new RealSub(comp_2[i], x, y, temp_1, temp_2, row, column).Obtain();
+                RealMatrix temp_1 = val_1, temp_2 = val_2; // Necessary
+                RealMatrix getValue(string s) => ObtainSub(s, temp_1, temp_2).Obtain();
+                val_1 = getValue(comp_1[i]); val_2 = getValue(comp_2[i]);
             }
-            return split[^1] == "1" ? value[0] : value[1];
+            return ModeChooser(split[^1], val_1, val_2, row, column);
         }
         #endregion
 
         #region Elements
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe DoubleMatrix Const(double c)
+        private unsafe RealMatrix Const(double c)
         {
-            DoubleMatrix output = new(row, column); double* srcPtr = output.Ptr();
+            RealMatrix output = new(row, column); double* srcPtr = output.Ptr();
             for (int q = 0; q < column; q++, srcPtr++) *srcPtr = c; srcPtr = output.Ptr();
-            Parallel.For(1, row, p => { double* destPtr = output.RowPtr(p);
-                Unsafe.CopyBlock(destPtr, srcPtr, columnSIZE); });
+            Parallel.For(1, row, p => { Unsafe.CopyBlock(output.RowPtr(p), srcPtr, columnSIZE); });
             return output;
         }
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Copy(DoubleMatrix src, DoubleMatrix dest)
+        private unsafe RealMatrix Copy(RealMatrix src)
         {
-            Parallel.For(0, row, p => { double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                Unsafe.CopyBlock(destPtr, srcPtr, columnSIZE); });
+            RealMatrix output = new(row, column);
+            Parallel.For(0, span, p => { Unsafe.CopyBlock(output.RowPtr(p * STEP), src.RowPtr(p * STEP), strideSIZE); });
+            if (residueSIZE != 0) Unsafe.CopyBlock(output.RowPtr(bulk), src.RowPtr(bulk), residueSIZE);
+            return output;
+        } // Passing matrices to mutable variables
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private unsafe RealMatrix Negate(RealMatrix src)
+        {
+            RealMatrix output = new(row, column);
+            Parallel.For(0, row, p => {
+                double* destPtr = output.RowPtr(p), srcPtr = src.RowPtr(p);
+                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr = -*srcPtr;
+            });
+            return output;
         }
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Negate(DoubleMatrix src, DoubleMatrix dest)
+        private unsafe void Plus(RealMatrix src, RealMatrix dest) => Parallel.For(0, row, p =>
         {
-            Parallel.For(0, row, p => { double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr = -*srcPtr; });
-        }
+            double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr += *srcPtr;
+        });
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Plus(DoubleMatrix src, DoubleMatrix dest)
+        private unsafe void Subtract(RealMatrix src, RealMatrix dest) => Parallel.For(0, row, p =>
         {
-            Parallel.For(0, row, p => { double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr +=*srcPtr; });
-        }
+            double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr -= *srcPtr;
+        });
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Subtract(DoubleMatrix src, DoubleMatrix dest)
+        private unsafe void Multiply(RealMatrix src, RealMatrix dest) => Parallel.For(0, row, p =>
         {
-            Parallel.For(0, row, p => { double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr -= *srcPtr; });
-        }
+            double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr *= *srcPtr;
+        });
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Multiply(DoubleMatrix src, DoubleMatrix dest)
+        private unsafe void Divide(RealMatrix src, RealMatrix dest) => Parallel.For(0, row, p =>
         {
-            Parallel.For(0, row, p => { double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr *= *srcPtr; });
-        }
+            double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr /= *srcPtr;
+        });
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Divide(DoubleMatrix src, DoubleMatrix dest)
+        private unsafe void Power(RealMatrix src, RealMatrix dest) => Parallel.For(0, row, p =>
         {
-            Parallel.For(0, row, p => { double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr /= *srcPtr; });
-        }
+            double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
+            for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr = Math.Pow(*srcPtr, *destPtr);
+        });
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Power(DoubleMatrix src, DoubleMatrix dest)
+        private unsafe void FuncSub(RealMatrix val, Func<double, double> function) => Parallel.For(0, row, r =>
         {
-            Parallel.For(0, row, p => { double* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr = Math.Pow(*srcPtr, *destPtr); });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void FuncSub(DoubleMatrix values, Func<double, double> function)
-        {
-            Parallel.For(0, row, r => { double* valuesPtr = values.RowPtr(r);
-                for (int c = 0; c < column; c++, valuesPtr++) *valuesPtr = function(*valuesPtr); });
-        }
+            double* valuePtr = val.RowPtr(r);
+            for (int c = 0; c < column; c++, valuePtr++) *valuePtr = function(*valuePtr);
+        });
         #endregion
 
         #region Assembly
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private DoubleMatrix Transform(string input)
+        private RealMatrix Transform(string input) => input[0] switch
         {
-            if (input[0] == '[') return braValues[Int32.Parse(MyString.Extract(input, 1, input.IndexOf(']') - 1))];
-            return input[0] switch
+            SB => braValues[Int32.Parse(TryBraNum(input))],
+            _X => x,
+            _Y => y,
+            X_ => X,
+            Y_ => Y,
+            E => Const(Math.E),
+            P => Const(Math.PI),
+            G => Const(GAMMA),
+            _ => Const(Double.Parse(input))
+        };
+        private RealMatrix BreakPower(string input)
+        {
+            string[] power_chunks = PrepareBreakPower(input, THRESHOLD);
+            RealMatrix tower = Copy(PowerCore(power_chunks[^1]));
+            for (int k = power_chunks.Length - 2; k >= 0; k--)
             {
-                'x' => x, 'y' => y, 'X' => X, 'Y' => Y,
-                'e' => Const(Math.E),
-                'p' => Const(Math.PI),
-                'g' => Const(GAMMA),
-                _ => Const(Double.Parse(input))
-            };
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix BreakPlusSubtract(string input)
-        {
-            var (signs, chunks) = MyString.PlusMultiplyBreaker(input[0] == '-' ? input : String.Concat('+', input), "+-", '+', THRESHOLD);
-            DoubleMatrix sum = BraFreePart(MyString.TrimStartChars(chunks[0], new char[] { '+' }));
-            for (int i = 1, length = chunks.Length; i < length; i++)
-                Plus(BraFreePart(signs[i - 1] == ':' ? chunks[i] : String.Concat('-', chunks[i])), sum);
-            return sum;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix PlusSubtractCore(string input)
-        {
-            if (!MyString.ContainsAny(input, new char[] { '+', '-' })) return MultiplyDivideCore(input);
-            if (MyString.CountChar(input, '+') + MyString.CountChar(input, '-') > THRESHOLD) return BreakPlusSubtract(input);
-            bool begins_minus = input[0] == '-';
-            input = MyString.TrimStartChars(input, new char[] { '-' });
-            string[] temp_split = MyString.SplitByChars(input, new char[] { '+', '-' });
-            input = String.Concat(begins_minus ? '-' : '+', input);
-            StringBuilder psBuilder = new();
-            for (int i = 0, length = input.Length; i < length; i++) if ("+-".Contains(input[i])) psBuilder.Append(input[i]);
-            DoubleMatrix sum = new(row, column), term = new(row, column);
-            for (int i = 0, _length = temp_split.Length; i < _length; i++)
-            {
-                term = MultiplyDivideCore(temp_split[i]); bool tmp = psBuilder[i] == '+';
-                Action<DoubleMatrix, DoubleMatrix> operation = i == 0 ? (tmp ? Copy : Negate) : (tmp ? Plus : Subtract);
-                operation(term, sum);
+                string[] power_split = SplitByChars(power_chunks[k], "^"); // Special for power
+                for (int m = power_split.Length - 1; m >= 0; m--) Power(Transform(power_split[m]), tower);
             }
-            return sum;
+            return tower;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix BreakMultiplyDivide(string input)
+        private RealMatrix PowerCore(string input)
         {
-            var (signs, chunks) = MyString.PlusMultiplyBreaker(String.Concat('*', input), "*/", '*', THRESHOLD);
-            DoubleMatrix product = BraFreePart(MyString.TrimStartChars(chunks[0], new char[] { '*' }));
-            for (int i = 1, length = chunks.Length; i < length; i++)
-                Multiply(BraFreePart(signs[i - 1] == ':' ? chunks[i] : String.Concat("1/", chunks[i])), product);
+            if (!input.Contains('^')) return Transform(input);
+            if (CountChars(input, "^") > THRESHOLD) return BreakPower(input);
+
+            string[] power_split = SplitByChars(input, "^"); RealMatrix tower = Copy(Transform(power_split[^1]));
+            for (int k = power_split.Length - 2; k >= 0; k--) Power(Transform(power_split[k]), tower);
+            return tower;
+        }
+        private RealMatrix BreakMultiplyDivide(string input)
+        {
+            var (prod_chunks, signs) = PrepareBreakPSMD(String.Concat('*', input), "*/", '*', THRESHOLD);
+            RealMatrix product = Copy(MultiplyDivideCore(TrimStartChar(prod_chunks[0], '*')));
+            for (int j = 1; j < prod_chunks.Length; j++)
+                Multiply(MultiplyDivideCore(signs[j - 1] == SUB_CHARS[0] ? prod_chunks[j] : String.Concat("1/", prod_chunks[j])), product);
             return product;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix MultiplyDivideCore(string tmpSplit)
+        private RealMatrix MultiplyDivideCore(string input)
         {
-            DoubleMatrix term = new(row, column);
-            if (!MyString.ContainsAny(tmpSplit, new char[] { '*', '/' })) Copy(PowerCore(tmpSplit), term);
-            else if (MyString.CountChar(tmpSplit, '*') + MyString.CountChar(tmpSplit, '/') > THRESHOLD)
-                return BreakMultiplyDivide(tmpSplit);
-            else
+            if (!ContainsAny(input, "*/")) return PowerCore(input);
+            if (CountChars(input, "*/") > THRESHOLD) return BreakMultiplyDivide(input);
+
+            var (product_split, mdBuilder) = GetMultiplyDivideComponents(input);
+            RealMatrix product = Copy(PowerCore(product_split[0]));
+            for (int j = 1; j < product_split.Length; j++)
             {
-                string[] split = MyString.SplitByChars(tmpSplit, new char[] { '*', '/' });
-                StringBuilder mdBuilder = new();
-                for (int k = 0, length = tmpSplit.Length; k < length; k++) if ("*/".Contains(tmpSplit[k])) mdBuilder.Append(tmpSplit[k]);
-                Copy(PowerCore(split[0]), term);
-                for (int k = 1, _length = split.Length; k < _length; k++)
-                {
-                    Action<DoubleMatrix, DoubleMatrix> operation = mdBuilder[k - 1] == '*' ? Multiply : Divide;
-                    operation(PowerCore(split[k]), term);
-                }
+                Action<RealMatrix, RealMatrix> operation = mdBuilder[j - 1] == '*' ? Multiply : Divide;
+                operation(PowerCore(product_split[j]), product);
             }
-            return term;
+            return product;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix BreakPower(string input)
+        private RealMatrix BreakPlusSubtract(string input)
         {
-            StringBuilder result = new(input);
-            for (int i = 0, flag = 0, length = result.Length; i < length; i++)
-            {
-                if (result[i] != '^') continue;
-                if (++flag % THRESHOLD == 0) result.Remove(i, 1).Insert(i, ":");
-            }
-            string[] chunks = MyString.SplitByChars(result.ToString(), new char[] { ':' });
-            DoubleMatrix term = new(row, column);
-            Copy(PowerCore(chunks[^1]), term);
-            for (int m = chunks.Length - 2; m >= 0; m--)
-            {
-                string[] split = MyString.SplitByChars(chunks[m], new char[] { '^' });
-                for (int t = split.Length - 1; t >= 0; t--) Power(Transform(split[t]), term);
-            }
-            return term;
+            var (sum_chunks, signs) = PrepareBreakPSMD(input[0] == '-' ? input : String.Concat('+', input), "+-", '+', THRESHOLD);
+            RealMatrix sum = Copy(PlusSubtractCore(TrimStartChar(sum_chunks[0], '+')));
+            for (int i = 1; i < sum_chunks.Length; i++)
+                Plus(PlusSubtractCore(signs[i - 1] == SUB_CHARS[0] ? sum_chunks[i] : String.Concat('-', sum_chunks[i])), sum);
+            return sum;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix PowerCore(string split)
+        private RealMatrix PlusSubtractCore(string input)
         {
-            if (!split.Contains('^')) return Transform(split);
-            else if (MyString.CountChar(split, '^') > THRESHOLD) return BreakPower(split);
-            else
+            if (!ContainsAny(input, "+-")) return MultiplyDivideCore(input);
+            if (CountChars(input, "+-") > THRESHOLD) return BreakPlusSubtract(input);
+
+            var (sum_split, psBuilder) = GetPlusSubtractComponents(input);
+            Func<RealMatrix, RealMatrix> function = psBuilder[0] == '+' ? Copy : Negate; // Special for "+-"
+            RealMatrix sum = function(MultiplyDivideCore(sum_split[0]));
+            for (int i = 1; i < sum_split.Length; i++)
             {
-                string[] inner_string = MyString.SplitByChars(split, new char[] { '^' });
-                DoubleMatrix tower = new(row, column);
-                Copy(Transform(inner_string[^1]), tower);
-                for (int m = inner_string.Length - 2; m >= 0; m--) Power(Transform(inner_string[m]), tower);
-                return tower;
+                Action<RealMatrix, RealMatrix> operation = psBuilder[i] == '+' ? Plus : Subtract;
+                operation(MultiplyDivideCore(sum_split[i]), sum);
             }
+            return sum;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private DoubleMatrix BraFreePart(string input)
+        private RealMatrix ComputeBraFreePart(string input)
         {
-            if (Int32.TryParse(input, out int result)) return Const(result); // Double is slower
-            if (input[0] == '[' && Int32.TryParse(MyString.Extract(input, 1, input.Length - 2), out int newResult))
-                return braValues[newResult];
-            return PlusSubtractCore(input);
+            if (Int32.TryParse(input, out int result)) return Const(result); // Double.TryParse is much slower
+            if (input[0] == SB && Int32.TryParse(TryBraNum(input), out int _result)) return braValues[_result];
+            return Copy(PlusSubtractCore(input)); // Necessary
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+
         private string SeriesSub(string input)
         {
-            if (!input.Contains('_')) return input;
-            int i = input.IndexOf('_'), end = MyString.PairedParenthesis(input, i + 1);
-            string temp = MyString.Extract(input, i + 2, end - 1);
-            braValues[count] = input[i - 1] switch
+            var (i, end, temp) = PrepareSeriesSub(input);
+            Func<string[], RealMatrix> braFunc = input[i - 1] switch
             {
-                'S' => Sum(temp),
-                'P' => Product(temp),
-                'F' => Hypergeometric(temp),
-                'G' => Gamma(temp),
-                'B' => Beta(temp),
-                'Z' => Zeta(temp),
-                'M' => Mod(temp),
-                'C' => Combination(temp),
-                'A' => Permutation(temp),
-                '>' => Max(temp),
-                '<' => Min(temp),
-                'I' when input[i - 2] == '1' => Iterate1(temp),
-                'I' when input[i - 2] == '2' => Iterate2(temp),
-                'J' when input[i - 2] == '1' => Composite1(temp),
-                'J' when input[i - 2] == '2' => Composite2(temp),
+                M_ => Mod,
+                C_ => Combination,
+                A_ => Permutation,
+                MAX => Max,
+                MIN => Min,
+                F_ => Hypergeometric,
+                G_ => Gamma,
+                B_ => Beta,
+                _Z_ => Zeta,
+                S_ => Sum,
+                P_ => Product,
+                I_ when input[i - 2] == MODE_1 => Iterate1,
+                I_ when input[i - 2] == MODE_2 => Iterate2,
+                J_ when input[i - 2] == MODE_1 => Composite1,
+                J_ when input[i - 2] == MODE_2 => Composite2
             };
-            return MyString.Replace(input, MyString.BracketSub(count++), i - ("IJ".Contains(input[i - 1]) ? 3 : 2), end);
+            braValues[count] = braFunc(ReplaceRecover(temp));
+            return Replace(input, BracketSub(count++), i - (IJ_.Contains(input[i - 1]) ? 3 : 2), end);
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        public DoubleMatrix Obtain()
+        private void SubCore(string temp, int begin, RealMatrix subValue, ref int tagL)
         {
-            string temp = input; DoubleMatrix subValue; Func<double, double> f;
-            do { temp = SeriesSub(temp); } while (temp.Contains('_'));
-            int length = MyString.CountChar(temp, '('), begin = temp.Length - 1, end;
-            for (int i = 0, tagL = -1; i < length; i++) // Because of ~ as the head of each tag
+            if (begin == 0) return;
+            bool isA = begin > 1 ? temp[begin - 2] != _A : false; // Should not simplify
+            switch (temp[begin - 1])
             {
-                (begin, end) = MyString.InnerParenthesis(temp, begin);
-                if (end == -1) end = MyString.PairedInnerParenthesis(temp, begin);
-                subValue = BraFreePart(MyString.Extract(temp, begin + 1, end - 1));
-                if (begin > 0)
-                {
-                    bool isA = begin > 1 ? temp[begin - 2] != 'a' : false; // The check is not redundant
-                    switch (temp[begin - 1])
+                case _S: FuncSub(subValue, isA ? Math.Sin : Math.Asin); tagL = isA ? 1 : 2; break;
+                case _C: FuncSub(subValue, isA ? Math.Cos : Math.Acos); tagL = isA ? 1 : 2; break;
+                case _T: FuncSub(subValue, isA ? Math.Tan : Math.Atan); tagL = isA ? 1 : 2; break;
+                case _H:
+                    bool IsA = temp[begin - 3] != _A; // Needn't check ahead because of ~
+                    FuncSub(subValue, temp[begin - 2] switch
                     {
-                        case 's': f = isA ? Math.Sin : Math.Asin; FuncSub(subValue, f); tagL = isA ? 1 : 2; break;
-                        case 'c': f = isA ? Math.Cos : Math.Acos; FuncSub(subValue, f); tagL = isA ? 1 : 2; break;
-                        case 't': f = isA ? Math.Tan : Math.Atan; FuncSub(subValue, f); tagL = isA ? 1 : 2; break;
-                        case 'h':
-                            bool IsA = temp[begin - 3] != 'a'; // Don't need check because of ~
-                            switch (temp[begin - 2])
-                            {
-                                case 's': f = IsA ? Math.Sinh : Math.Asinh; FuncSub(subValue, f); tagL = IsA ? 2 : 3; break;
-                                case 'c': f = IsA ? Math.Cosh : Math.Acosh; FuncSub(subValue, f); tagL = IsA ? 2 : 3; break;
-                                case 't': f = IsA ? Math.Tanh : Math.Atanh; FuncSub(subValue, f); tagL = IsA ? 2 : 3; break;
-                            }
-                            break;
-                        case 'a': FuncSub(subValue, Math.Abs); tagL = 1; break;
-                        case 'l': FuncSub(subValue, Math.Log); tagL = 1; break;
-                        case 'E': FuncSub(subValue, Math.Exp); tagL = 1; break;
-                        case 'q': FuncSub(subValue, Math.Sqrt); tagL = 1; break;
-                        case '!': FuncSub(subValue, Factorial); tagL = 1; break;
-                        case '$': // Special for real
-                            switch (temp[begin - 2])
-                            {
-                                case 'f': FuncSub(subValue, Math.Floor); tagL = 2; break;
-                                case 'c': FuncSub(subValue, Math.Ceiling); tagL = 2; break;
-                                case 'r': FuncSub(subValue, Math.Round); tagL = 2; break;
-                                case 's': FuncSub(subValue, MySign); tagL = 2; break;
-                            }
-                            break;
-                        default: break;
-                    }
-                }
-                braValues[count] = subValue;
-                begin -= tagL + 1; tagL = -1;
-                temp = MyString.Replace(temp, MyString.BracketSub(count++), begin--, end);
+                        _S => IsA ? Math.Sinh : Math.Asinh,
+                        _C => IsA ? Math.Cosh : Math.Acosh,
+                        _T => IsA ? Math.Tanh : Math.Atanh
+                    }); tagL = IsA ? 2 : 3; break;
+                case _A: FuncSub(subValue, Math.Abs); tagL = 1; break;
+                case _L: FuncSub(subValue, Math.Log); tagL = 1; break;
+                case E_: FuncSub(subValue, Math.Exp); tagL = 1; break;
+                case _Q: FuncSub(subValue, Math.Sqrt); tagL = 1; break;
+                case _F_: FuncSub(subValue, Factorial); tagL = 1; break;
+                case _D_: // Special for real
+                    FuncSub(subValue, temp[begin - 2] switch
+                    {
+                        _F => Math.Floor,
+                        _C => Math.Ceiling,
+                        _R => Math.Round,
+                        _S => r => (double)Math.Sign(r) // (double) is not redundant
+                    }); tagL = 2; break;
+                default: break;
             }
-            return BraFreePart(temp);
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static double Obtain(string input, double x = 0.0) => new RealSub(input, x).Obtain()[0, 0];
+        public RealMatrix Obtain()
+        {
+            if (!input.Contains('(')) return ComputeBraFreePart(input);
+            string temp = input; RealMatrix subValue;
+            while (temp.Contains(UNDERLINE)) temp = SeriesSub(temp);
+
+            var (length, begin, end, tagL) = PrepareLoop(temp);
+            for (int i = 0; i < length; i++)
+            {
+                ResetBeginEnd(temp, ref begin, ref end);
+                subValue = ComputeBraFreePart(BraFreePart(temp, begin, end));
+                SubCore(temp, begin, subValue, ref tagL);
+                braValues[count] = subValue;
+                SubstituteTemp(ref temp, ref begin, end, ref tagL, ref count);
+            }
+            return ComputeBraFreePart(temp);
+        }
         #endregion
-    }
+    } /// Computing real-variable expressions
+
+    /// <summary>
+    /// STRUCTURE SECTION
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    public readonly struct Complex
+    public readonly struct Complex // Manually inlinined to reduce overhead
     {
         public readonly double real, imaginary;
+        public static readonly Complex ZERO = new(0), HALF = new(0.5), ONE = new(1), TWO = new(2), I = new(0, 1), TWOI = new(0, 2);
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Complex(double real, double imaginary = 0.0) { this.real = real; this.imaginary = imaginary; }
 
-        #region Operations
+        #region Operators
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex operator -(Complex input) => new(-input.real, -input.imaginary);
+        public static Complex operator -(Complex c) => new(-c.real, -c.imaginary);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex operator +(Complex input_1, Complex input_2)
-            => new(input_1.real + input_2.real, input_1.imaginary + input_2.imaginary);
+        public static Complex operator +(Complex c1, Complex c2) => new(c1.real + c2.real, c1.imaginary + c2.imaginary);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex operator -(Complex input_1, Complex input_2)
-            => new(input_1.real - input_2.real, input_1.imaginary - input_2.imaginary);
+        public static Complex operator -(Complex c1, Complex c2) => new(c1.real - c2.real, c1.imaginary - c2.imaginary);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex operator *(Complex input_1, Complex input_2)
+        public static Complex operator *(Complex c1, Complex c2)
         {
-            double real1 = input_1.real, imag1 = input_1.imaginary;
-            double real2 = input_2.real, imag2 = input_2.imaginary;
-            return new(real1 * real2 - imag1 * imag2, real1 * imag2 + imag1 * real2);
+            double re1 = c1.real, im1 = c1.imaginary, re2 = c2.real, im2 = c2.imaginary;
+            return new(re1 * re2 - im1 * im2, re1 * im2 + im1 * re2);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex operator /(Complex input_1, Complex input_2)
+        public static Complex operator /(Complex c1, Complex c2)
         {
-            double real1 = input_1.real, imag1 = input_1.imaginary;
-            double real2 = input_2.real, imag2 = input_2.imaginary;
-            double modSquare = real2 * real2 + imag2 * imag2;
-            return new Complex((real1 * real2 + imag1 * imag2) / modSquare, (imag1 * real2 - real1 * imag2) / modSquare);
+            double re1 = c1.real, im1 = c1.imaginary, re2 = c2.real, im2 = c2.imaginary, mod = re2 * re2 + im2 * im2;
+            return new((re1 * re2 + im1 * im2) / mod, (im1 * re2 - re1 * im2) / mod);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex operator ^(Complex input_1, Complex input_2) => Pow(input_1, input_2);
+        public static Complex operator ^(Complex c1, Complex c2)
+        {
+            double re = c1.real, im = c1.imaginary;
+            if (re == 0 && im == 0) return ZERO; // Necessary apriori checking
+            Complex c3 = c2 * new Complex(Math.Log(re * re + im * im) / 2, Math.Atan2(im, re));
+            double mod = Math.Exp(c3.real); var unit = Math.SinCos(c3.imaginary);
+            return new(mod * unit.Cos, mod * unit.Sin);
+        }
         #endregion
 
         #region Elementary Functions
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Pow(Complex input_1, Complex input_2)
+        public static Complex Log(Complex c)
         {
-            if (input_1.real == 0 && input_1.imaginary == 0) return new(0);
-            return Exp(input_2 * Log(input_1));
-        } // Extremely sensitive, mustn't move a hair.
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Log(Complex input) => new(Math.Log(Modulus(input)), Math.Atan2(input.imaginary, input.real));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Exp(Complex input)
-        {
-            double expReal = Math.Exp(input.real), imag = input.imaginary;
-            return new(expReal * Math.Cos(imag), expReal * Math.Sin(imag));
+            double re = c.real, im = c.imaginary;
+            return new(Math.Log(re * re + im * im) / 2, Math.Atan2(im, re));
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Ei(Complex input) => Exp(new Complex(0, Math.Tau) * input);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Sin(Complex input)
-        { Complex temp = Exp(new Complex(0, 1) * input); return (temp - new Complex(1) / temp) / new Complex(0, 2); }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Cos(Complex input)
-        { Complex temp = Exp(new Complex(0, 1) * input); return (temp + new Complex(1) / temp) / new Complex(2); }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Tan(Complex input)
-            => new Complex(0, 1) * (new Complex(-1) + new Complex(2) / (new Complex(1) + Exp(new Complex(0, 2) * input)));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Asin(Complex input)
-            => new Complex(0, -1) * Log(new Complex(0, 1) * input + Sqrt(new Complex(1) - input * input));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Acos(Complex input)
-            => new Complex(0, -1) * Log(input + new Complex(0, 1) * Sqrt(new Complex(1) - input * input));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Atan(Complex input)
-            => Log(new Complex(-1) + new Complex(0, 2) / (new Complex(0, 1) + input)) / new Complex(0, 2);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Sinh(Complex input)
-        { Complex temp = Exp(input); return (temp - new Complex(1) / temp) / new Complex(2); }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Cosh(Complex input)
-        { Complex temp = Exp(input); return (temp + new Complex(1) / temp) / new Complex(2); }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Tanh(Complex input)
-            => new Complex(1) - new Complex(2) / (new Complex(1) + Exp(new Complex(2) * input));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Asinh(Complex input) => Log(input + Sqrt(new Complex(1) + input * input));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Acosh(Complex input) => Log(input + Sqrt(new Complex(-1) + input * input));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Atanh(Complex input)
-            => Log(new Complex(-1) + new Complex(2) / (new Complex(1) - input)) / new Complex(2);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Sqrt(Complex input) => input ^ new Complex(0.5);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex ModulusComplex(Complex input) => new(Modulus(input));
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static double Modulus(Complex input)
+        public static Complex Exp(Complex c)
         {
-            double real = input.real, imag = input.imaginary;
-            return Math.Sqrt(real * real + imag * imag);
+            double mod = Math.Exp(c.real); var unit = Math.SinCos(c.imaginary);
+            return new(mod * unit.Cos, mod * unit.Sin);
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Conjugate(Complex input) => new(input.real, -input.imaginary);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Complex Factorial(Complex input) => new(RealSub.Factorial(input.real));
+        public static Complex Ei(Complex c)
+        {
+            double mod = Math.Exp(-Math.Tau * c.imaginary); var unit = Math.SinCos(Math.Tau * c.real);
+            return new(mod * unit.Cos, mod * unit.Sin);
+        }
+        public static Complex Sin(Complex c)
+        {
+            double mod = Math.Exp(-c.imaginary); var unit = Math.SinCos(c.real);
+            Complex c0 = new(mod * unit.Cos, mod * unit.Sin); return (c0 - ONE / c0) / TWOI;
+        }
+        public static Complex Cos(Complex c)
+        {
+            double mod = Math.Exp(-c.imaginary); var unit = Math.SinCos(c.real);
+            Complex c0 = new(mod * unit.Cos, mod * unit.Sin); return (c0 + ONE / c0) / TWO;
+        }
+        public static Complex Tan(Complex c)
+        {
+            double mod = Math.Exp(-2 * c.imaginary); var unit = Math.SinCos(2 * c.real);
+            Complex c0 = new(mod * unit.Cos, mod * unit.Sin); return I * (-ONE + TWO / (ONE + c0));
+        }
+        public static Complex Asin(Complex c) // Remind the parentheses
+        {
+            Complex c0 = I * c + ((ONE - c * c) ^ HALF); double re = c0.real, im = c0.imaginary;
+            return new(Math.Atan2(im, re), -Math.Log(re * re + im * im) / 2);
+        }
+        public static Complex Acos(Complex c) // Remind the parentheses
+        {
+            Complex c0 = I * c + ((ONE - c * c) ^ HALF); double re = c0.real, im = c0.imaginary;
+            return new(Math.PI / 2 - Math.Atan2(im, re), Math.Log(re * re + im * im) / 2);
+        } // Wolfram convention
+        public static Complex Atan(Complex c)
+        {
+            Complex c0 = -ONE + TWOI / (I + c); double re = c0.real, im = c0.imaginary;
+            return new(Math.Atan2(im, re) / 2, -Math.Log(re * re + im * im) / 4);
+        }
+        public static Complex Sinh(Complex c)
+        {
+            double mod = Math.Exp(c.real); var unit = Math.SinCos(c.imaginary);
+            Complex c0 = new(mod * unit.Cos, mod * unit.Sin); return (c0 - ONE / c0) / TWO;
+        }
+        public static Complex Cosh(Complex c)
+        {
+            double mod = Math.Exp(c.real); var unit = Math.SinCos(c.imaginary);
+            Complex c0 = new(mod * unit.Cos, mod * unit.Sin); return (c0 + ONE / c0) / TWO;
+        }
+        public static Complex Tanh(Complex c)
+        {
+            double mod = Math.Exp(2 * c.real); var unit = Math.SinCos(2 * c.imaginary);
+            Complex c0 = new(mod * unit.Cos, mod * unit.Sin); return ONE - TWO / (ONE + c0);
+        }
+        public static Complex Asinh(Complex c) // Remind the parentheses
+        {
+            Complex c0 = c + ((ONE + c * c) ^ HALF); double re = c0.real, im = c0.imaginary;
+            return new(Math.Log(re * re + im * im) / 2, Math.Atan2(im, re));
+        }
+        public static Complex Acosh(Complex c) // Remind the parentheses
+        {
+            Complex c0 = c + ((c + ONE) ^ HALF) * ((c - ONE) ^ HALF); double re = c0.real, im = c0.imaginary;
+            return new(Math.Log(re * re + im * im) / 2, Math.Atan2(im, re));
+        } // Wolfram convention
+        public static Complex Atanh(Complex c)
+        {
+            Complex c0 = -ONE + TWO / (ONE - c); double re = c0.real, im = c0.imaginary;
+            return new(Math.Log(re * re + im * im) / 4, Math.Atan2(im, re) / 2);
+        }
+        public static Complex Sqrt(Complex c) => c ^ HALF;
+        public static double Modulus(double x, double y) => Modulus(new(x, y));
+        public static double Modulus(Complex c) => Math.Sqrt(c.real * c.real + c.imaginary * c.imaginary);
+        public static Complex Conjugate(Complex c) => new(c.real, -c.imaginary);
+        public static Complex Factorial(Complex c) => new(RealSub.Factorial(c.real));
         #endregion
-    }
+    } /// Optimized double-entried complex numbers
     public readonly struct ComplexMatrix
     {
-        private readonly Complex[] data; private readonly int Rows, Columns;
+        private readonly Complex[] data; private readonly int rows, columns;
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ComplexMatrix(int rows, int columns) { data = new Complex[rows * columns]; Rows = rows; Columns = columns; }
+        public ComplexMatrix(int rows, int columns) { data = new Complex[rows * columns]; this.rows = rows; this.columns = columns; }
         public Complex this[int row, int column]
         {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)] get => data[row * Columns + column];
-            [MethodImpl(MethodImplOptions.AggressiveInlining)] set => data[row * Columns + column] = value;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => data[row * columns + column];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => data[row * columns + column] = value;
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public readonly unsafe Complex* Ptr() { fixed (Complex* ptr = &data[0]) { return ptr; } }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly unsafe Complex* RowPtr(int row) { fixed (Complex* ptr = &data[row * Columns]) { return ptr; } }
-    }
-    public class ComplexSub
+        public readonly unsafe Complex* RowPtr(int row) { fixed (Complex* ptr = &data[row * columns]) { return ptr; } }
+    } /// Optimized complex matrices
+    public readonly struct RealMatrix
     {
-        private const double GAMMA = 0.57721566490153286060651209008240243;
-        private const int THRESHOLD = 10, STRUCTSIZE = 16; // Marshal.SizeOf<Complex>()
-        private string input;
-        private int row, column, count;
-        private uint columnSIZE;
-        private ComplexMatrix z, Z;
-        private ComplexMatrix[] braValues;
-
-        #region Constructors
-        private void Initialize(string input, int row, int column)
-        {
-            if (String.IsNullOrEmpty(input)) throw new FormatException();
-            this.input = RecoverMultiply.Recover(input, true);
-            braValues = new ComplexMatrix[MyString.CountChar(this.input, '(')];
-            z = Z = new(row, column);
-            this.row = row; this.column = column; columnSIZE = (uint)(column * STRUCTSIZE);
-        }
-        public ComplexSub(string input, int row, int column) => Initialize(input, row, column);
-        public ComplexSub(string input, ComplexMatrix z, int row, int column) : this(input, row, column) => this.z = z;
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        public unsafe ComplexSub(string input, DoubleMatrix real, DoubleMatrix imaginary, int row, int column) 
-            : this(input, row, column)
-        {
-            Parallel.For(0, row, i => {
-                double* realPtr = real.RowPtr(i), imaginaryPtr = imaginary.RowPtr(i); Complex* zPtr = z.RowPtr(i);
-                for (int j = 0; j < column; j++, realPtr++, imaginaryPtr++, zPtr++) *zPtr = new Complex(*realPtr, *imaginaryPtr);
-            });
-        }
-        public ComplexSub(string input, ComplexMatrix z, ComplexMatrix Z, int row, int column) : this(input, row, column)
-        { this.z = z; this.Z = Z; }
-        #endregion
-
-        #region Calculations
+        private readonly double[] data; private readonly int rows, columns;
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static double ArgumentForRGB(Complex input) => ArgumentForRGB(input.real, input.imaginary);
+        public RealMatrix(int rows, int columns) { data = new double[rows * columns]; this.rows = rows; this.columns = columns; }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static double ArgumentForRGB(double x, double y)
+        public RealMatrix(double x) { data = new double[] { x }; rows = columns = 1; } // Special for real
+        public double this[int row, int column]
         {
-            if (Double.IsNaN(x) && Double.IsNaN(y)) return -1;
-            return y == 0 ? x == 0 ? -1 : x > 0 ? 0 : Math.PI : y > 0 ? Math.Atan2(y, x) : Math.Atan2(y, x) + Math.Tau;
-        } // Extremely sensitive, mustn't move a hair.
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe ComplexMatrix Hypergeometric(string input)
-        {
-            string[] split = MyString.ReplaceRecover(input); int length = split.Length;
-            if (length > 5 || length < 4) throw new FormatException();
-            int n = length == 5 ? MyString.ToInt(split[4]) : 100;
-            ComplexMatrix sum = new(row, column), product = Const(new Complex(1));
-            ComplexMatrix input_new = new ComplexSub(split[3], z, Z, row, column).Obtain();
-            ComplexMatrix _a = new ComplexSub(split[0], row, column).Obtain();
-            ComplexMatrix _b = new ComplexSub(split[1], row, column).Obtain();
-            ComplexMatrix _c = new ComplexSub(split[2], row, column).Obtain();
-            Parallel.For(0, row, r => {
-                Complex* prodPtr = product.RowPtr(r), sumPtr = sum.RowPtr(r), inputPtr = input_new.RowPtr(r);
-                Complex* aPtr = _a.RowPtr(r), bPtr = _b.RowPtr(r), cPtr = _c.RowPtr(r);
-                for (int c = 0; c < column; c++, prodPtr++, sumPtr++, inputPtr++, aPtr++, bPtr++, cPtr++)
-                    for (int i = 0; i <= n; i++)
-                    {
-                        Complex temp = new(i - 1);
-                        if (i != 0) *prodPtr *= *inputPtr * (*aPtr + temp) * (*bPtr + temp) / (*cPtr + temp) / new Complex(i);
-                        *sumPtr += *prodPtr;
-                    }
-            });
-            return sum;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => data[row * columns + column];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => data[row * columns + column] = value;
         }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe ComplexMatrix Gamma(string input)
-        {
-            string[] split = MyString.ReplaceRecover(input); int length = split.Length;
-            if (length > 2) throw new FormatException();
-            int n = length == 2 ? MyString.ToInt(split[1]) : 100;
-            Complex tmp1 = new(1), tmpMG = new(-GAMMA);
-            ComplexMatrix product = Const(tmp1), temp_value = new ComplexSub(split[0], z, Z, row, column).Obtain();
-            Parallel.For(0, row, r => {
-                Complex* prodPtr = product.RowPtr(r), tempPtr = temp_value.RowPtr(r);
-                for (int c = 0; c < column; c++, prodPtr++, tempPtr++)
-                {
-                    for (int i = 1; i <= n; i++)
-                    { Complex temp = *tempPtr / new Complex(i); *prodPtr *= Complex.Exp(temp) / (tmp1 + temp); }
-                }
-            });
-            ComplexMatrix output = new(row, column);
-            Parallel.For(0, row, r => {
-                Complex* outPtr = output.RowPtr(r), prodPtr = product.RowPtr(r), tempPtr = temp_value.RowPtr(r);
-                for (int c = 0; c < column; c++, outPtr++, prodPtr++, tempPtr++)
-                    *outPtr = *prodPtr * Complex.Exp(tmpMG * *tempPtr) / *tempPtr;
-            });
-            return output;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe ComplexMatrix Beta(string input)
-        {
-            string[] split = MyString.ReplaceRecover(input); int length = split.Length;
-            if (length > 3 || length < 2) throw new FormatException();
-            int n = length == 3 ? MyString.ToInt(split[2]) : 100;
-            Complex tmp1 = new(1);
-            ComplexMatrix product = Const(tmp1);
-            ComplexMatrix temp_1 = new ComplexSub(split[0], z, Z, row, column).Obtain();
-            ComplexMatrix temp_2 = new ComplexSub(split[1], z, Z, row, column).Obtain();
-            Parallel.For(0, row, r => {
-                Complex* prodPtr = product.RowPtr(r), temp1Ptr = temp_1.RowPtr(r), temp2Ptr = temp_2.RowPtr(r);
-                for (int c = 0; c < column; c++, prodPtr++, temp1Ptr++, temp2Ptr++)
-                {
-                    for (int i = 1; i <= n; i++)
-                    { Complex temp = new(i); *prodPtr *= tmp1 + *temp1Ptr * *temp2Ptr / (temp * (temp + *temp1Ptr + *temp2Ptr)); }
-                }
-            });
-            ComplexMatrix output = new(row, column);
-            Parallel.For(0, row, r => {
-                Complex* outPtr = output.RowPtr(r), prodPtr = product.RowPtr(r),
-                temp1Ptr = temp_1.RowPtr(r), temp2Ptr = temp_2.RowPtr(r);
-                for (int c = 0; c < column; c++, outPtr++, temp1Ptr++, temp2Ptr++, prodPtr++)
-                    *outPtr = (*temp1Ptr + *temp2Ptr) / (*temp1Ptr * *temp2Ptr) / *prodPtr;
-            });
-            return output;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe ComplexMatrix Zeta(string input)
-        {
-            string[] split = MyString.ReplaceRecover(input); int length = split.Length;
-            if (length > 2) throw new FormatException();
-            int n = length == 2 ? MyString.ToInt(split[1]) : 50;
-            Complex tmp0 = new(0), tmp1 = new(1), tmp2 = new(2);
-            ComplexMatrix sum = new(row, column), Sum = new(row, column), Coefficient = Const(tmp1), coefficient = Const(tmp1);
-            ComplexMatrix temp_value = new ComplexSub(split[0], z, Z, row, column).Obtain();
-            Parallel.For(0, row, r =>
-            {
-                Complex* coeffPtr = coefficient.RowPtr(r), CoeffPtr = Coefficient.RowPtr(r);
-                Complex* SumPtr = Sum.RowPtr(r), sumPtr = sum.RowPtr(r);
-                Complex* tempPtr = temp_value.RowPtr(r);
-                for (int c = 0; c < column; c++, CoeffPtr++, coeffPtr++, SumPtr++, sumPtr++, tempPtr++)
-                {
-                    for (int i = 0; i <= n; i++)
-                    {
-                        *CoeffPtr /= tmp2; *coeffPtr = tmp1; *SumPtr = tmp0;
-                        for (int j = 0; j <= i; j++)
-                        {
-                            *SumPtr += *coeffPtr / ((new Complex(j + 1)) ^ *tempPtr);
-                            *coeffPtr *= new Complex((double)(j - i) / (double)(j + 1)); // Double is not redundant here
-                        }
-                        *SumPtr *= *CoeffPtr; *sumPtr += *SumPtr;
-                    }
-                    *sumPtr /= tmp1 - (tmp2 ^ (tmp1 - *tempPtr));
-                }
-            });
-            return sum;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix Sum(string input)
-        {
-            string[] split = MyString.ReplaceRecover(input);
-            if (split.Length != 4) throw new FormatException();
-            ComplexSub Buffer = new(split[0].Replace(split[1], MyString.IndexSub(0)), z, row, column);
-            for (int i = MyString.ToInt(split[2]), int3 = MyString.ToInt(split[3]); i <= int3; i++)
-            {
-                Buffer.input = RecoverMultiply.Recover(split[0].Replace(split[1], MyString.IndexSub(i)), true);
-                Buffer.count = 0; Plus(Buffer.Obtain(), Buffer.Z);
-            }
-            return Buffer.Z;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix Product(string input)
-        {
-            string[] split = MyString.ReplaceRecover(input);
-            if (split.Length != 4) throw new FormatException();
-            ComplexSub Buffer = new(split[0].Replace(split[1], MyString.IndexSub(0)), z, row, column) { Z = Const(new(1)) };
-            for (int i = MyString.ToInt(split[2]), int3 = MyString.ToInt(split[3]); i <= int3; i++)
-            {
-                Buffer.input = RecoverMultiply.Recover(split[0].Replace(split[1], MyString.IndexSub(i)), true);
-                Buffer.count = 0; Multiply(Buffer.Obtain(), Buffer.Z);
-            }
-            return Buffer.Z;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix Iterate(string input)
-        {
-            string[] split = MyString.ReplaceRecover(input);
-            if (split.Length != 5) throw new FormatException();
-            ComplexSub Buffer = new(split[0].Replace(split[2], MyString.IndexSub(0)), z, row, column)
-            { Z = new ComplexSub(split[1], z, row, column).Obtain() };
-            for (int i = MyString.ToInt(split[3]), int4 = MyString.ToInt(split[4]); i <= int4; i++)
-            {
-                Buffer.input = RecoverMultiply.Recover(split[0].Replace(split[2], MyString.IndexSub(i)), true);
-                Buffer.count = 0; Buffer.Z = Buffer.Obtain();
-            }
-            return Buffer.Z;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix Composite(string input)
-        {
-            string[] split = MyString.ReplaceRecover(input);
-            ComplexMatrix value = new ComplexSub(split[0], z, row, column).Obtain();
-            for (int i = 1, length = split.Length; i < length; i++) value = new ComplexSub(split[i], z, value, row, column).Obtain();
-            return value;
-        }
-        #endregion
-
-        #region Elements
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe ComplexMatrix Const(Complex c)
-        {
-            ComplexMatrix output = new(row, column); Complex* srcPtr = output.Ptr();
-            for (int q = 0; q < column; q++, srcPtr++) *srcPtr = c; srcPtr = output.Ptr();
-            Parallel.For(1, row, p => { Complex* destPtr = output.RowPtr(p);
-                Unsafe.CopyBlock(destPtr, srcPtr, columnSIZE); });
-            return output;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Copy(ComplexMatrix src, ComplexMatrix dest)
-        {
-            Parallel.For(0, row, p => { Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                Unsafe.CopyBlock(destPtr, srcPtr, columnSIZE); });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Negate(ComplexMatrix src, ComplexMatrix dest)
-        {
-            Parallel.For(0, row, p => { Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr = -*srcPtr; });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Plus(ComplexMatrix src, ComplexMatrix dest)
-        {
-            Parallel.For(0, row, p => { Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr +=*srcPtr; });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Subtract(ComplexMatrix src, ComplexMatrix dest)
-        {
-            Parallel.For(0, row, p => { Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr -= *srcPtr; });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Multiply(ComplexMatrix src, ComplexMatrix dest)
-        {
-            Parallel.For(0, row, p => { Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr *= *srcPtr; });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Divide(ComplexMatrix src, ComplexMatrix dest)
-        {
-            Parallel.For(0, row, p => { Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr /= *srcPtr; });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void Power(ComplexMatrix src, ComplexMatrix dest)
-        {
-            Parallel.For(0, row, p => { Complex* destPtr = dest.RowPtr(p), srcPtr = src.RowPtr(p);
-                for (int q = 0; q < column; q++, destPtr++, srcPtr++) *destPtr = *srcPtr ^ *destPtr; });
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private unsafe void FuncSub(ComplexMatrix values, Func<Complex, Complex> function)
-        {
-            Parallel.For(0, row, r => { Complex* valuesPtr = values.RowPtr(r);
-                for (int c = 0; c < column; c++, valuesPtr++) *valuesPtr = function(*valuesPtr); });
-        }
-        #endregion
-
-        #region Assembly
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private ComplexMatrix Transform(string input)
-        {
-            if (input[0] == '[') return braValues[Int32.Parse(MyString.Extract(input, 1, input.IndexOf(']') - 1))];
-            return input[0] switch
-            {
-                'z' => z, 'Z' => Z,
-                'i' => Const(new Complex(0, 1)),
-                'e' => Const(new Complex(Math.E)),
-                'p' => Const(new Complex(Math.PI)),
-                'g' => Const(new Complex(GAMMA)),
-                _ => Const(new Complex(Double.Parse(input)))
-            };
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix BreakPlusSubtract(string input)
-        {
-            var (signs, chunks) = MyString.PlusMultiplyBreaker(input[0] == '-' ? input : String.Concat('+', input), "+-", '+', THRESHOLD);
-            ComplexMatrix sum = BraFreePart(MyString.TrimStartChars(chunks[0], new char[] { '+' }));
-            for (int i = 1, length = chunks.Length; i < length; i++)
-                Plus(BraFreePart(signs[i - 1] == ':' ? chunks[i] : String.Concat('-', chunks[i])), sum);
-            return sum;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix PlusSubtractCore(string input)
-        {
-            if (!MyString.ContainsAny(input, new char[] { '+', '-' })) return MultiplyDivideCore(input);
-            if (MyString.CountChar(input, '+') + MyString.CountChar(input, '-') > THRESHOLD) return BreakPlusSubtract(input);
-            bool begins_minus = input[0] == '-';
-            input = MyString.TrimStartChars(input, new char[] { '-' });
-            string[] temp_split = MyString.SplitByChars(input, new char[] { '+', '-' });
-            input = String.Concat(begins_minus ? '-' : '+', input);
-            StringBuilder psBuilder = new();
-            for (int i = 0, length = input.Length; i < length; i++) if ("+-".Contains(input[i])) psBuilder.Append(input[i]);
-            ComplexMatrix sum = new(row, column), term = new(row, column);
-            for (int i = 0, _length = temp_split.Length; i < _length; i++)
-            {
-                term = MultiplyDivideCore(temp_split[i]); bool tmp = psBuilder[i] == '+';
-                Action<ComplexMatrix, ComplexMatrix> operation = i == 0 ? (tmp ? Copy : Negate) : (tmp ? Plus : Subtract);
-                operation(term, sum);
-            }
-            return sum;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix BreakMultiplyDivide(string input)
-        {
-            var (signs, chunks) = MyString.PlusMultiplyBreaker(String.Concat('*', input), "*/", '*', THRESHOLD);
-            ComplexMatrix product = BraFreePart(MyString.TrimStartChars(chunks[0], new char[] { '*' }));
-            for (int i = 1, length = chunks.Length; i < length; i++)
-                Multiply(BraFreePart(signs[i - 1] == ':' ? chunks[i] : String.Concat("1/", chunks[i])), product);
-            return product;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix MultiplyDivideCore(string tmpSplit)
-        {
-            ComplexMatrix term = new(row, column);
-            if (!MyString.ContainsAny(tmpSplit, new char[] { '*', '/' })) Copy(PowerCore(tmpSplit), term);
-            else if (MyString.CountChar(tmpSplit, '*') + MyString.CountChar(tmpSplit, '/') > THRESHOLD)
-                return BreakMultiplyDivide(tmpSplit);
-            else
-            {
-                string[] split = MyString.SplitByChars(tmpSplit, new char[] { '*', '/' });
-                StringBuilder mdBuilder = new();
-                for (int k = 0, length = tmpSplit.Length; k < length; k++) if ("*/".Contains(tmpSplit[k])) mdBuilder.Append(tmpSplit[k]);
-                Copy(PowerCore(split[0]), term);
-                for (int k = 1, _length = split.Length; k < _length; k++)
-                {
-                    Action<ComplexMatrix, ComplexMatrix> operation = mdBuilder[k - 1] == '*' ? Multiply : Divide;
-                    operation(PowerCore(split[k]), term);
-                }
-            }
-            return term;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix BreakPower(string input)
-        {
-            StringBuilder result = new(input);
-            for (int i = 0, flag = 0, length = result.Length; i < length; i++)
-            {
-                if (result[i] != '^') continue;
-                if (++flag % THRESHOLD == 0) result.Remove(i, 1).Insert(i, ":");
-            }
-            string[] chunks = MyString.SplitByChars(result.ToString(), new char[] { ':' });
-            ComplexMatrix term = new(row, column);
-            Copy(PowerCore(chunks[^1]), term);
-            for (int m = chunks.Length - 2; m >= 0; m--)
-            {
-                string[] split = MyString.SplitByChars(chunks[m], new char[] { '^' });
-                for (int t = split.Length - 1; t >= 0; t--) Power(Transform(split[t]), term);
-            }
-            return term;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix PowerCore(string split)
-        {
-            if (!split.Contains('^')) return Transform(split);
-            else if (MyString.CountChar(split, '^') > THRESHOLD) return BreakPower(split);
-            else
-            {
-                string[] inner_string = MyString.SplitByChars(split, new char[] { '^' });
-                ComplexMatrix tower = new(row, column);
-                Copy(Transform(inner_string[^1]), tower);
-                for (int m = inner_string.Length - 2; m >= 0; m--) Power(Transform(inner_string[m]), tower);
-                return tower;
-            }
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private ComplexMatrix BraFreePart(string input)
-        {
-            if (Int32.TryParse(input, out int result)) return Const(new Complex(result)); // Double is slower
-            if (input[0] == '[' && Int32.TryParse(MyString.Extract(input, 1, input.Length - 2), out int newResult))
-                return braValues[newResult];
-            return PlusSubtractCore(input);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private string SeriesSub(string input)
-        {
-            if (!input.Contains('_')) return input;
-            int i = input.IndexOf('_'), end = MyString.PairedParenthesis(input, i + 1);
-            string temp = MyString.Extract(input, i + 2, end - 1);
-            braValues[count] = input[i - 1] switch
-            {
-                'S' => Sum(temp),
-                'P' => Product(temp),
-                'F' => Hypergeometric(temp),
-                'G' => Gamma(temp),
-                'B' => Beta(temp),
-                'Z' => Zeta(temp),
-                'I' => Iterate(temp),
-                'J' => Composite(temp)
-            };
-            return MyString.Replace(input, MyString.BracketSub(count++), i - 2, end);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        public ComplexMatrix Obtain()
-        {
-            string temp = input; ComplexMatrix subValue; Func<Complex, Complex> f;
-            do { temp = SeriesSub(temp); } while (temp.Contains('_'));
-            int length = MyString.CountChar(temp, '('), begin = temp.Length - 1, end;
-            for (int i = 0, tagL = -1; i < length; i++) // Because of ~ as the head of each tag
-            {
-                (begin, end) = MyString.InnerParenthesis(temp, begin);
-                if (end == -1) end = MyString.PairedInnerParenthesis(temp, begin);
-                subValue = BraFreePart(MyString.Extract(temp, begin + 1, end - 1));
-                if (begin > 0)
-                {
-                    bool isA = begin > 1 ? temp[begin - 2] != 'a' : false; // The check is not redundant
-                    switch (temp[begin - 1])
-                    {
-                        case 's': f = isA ? Complex.Sin : Complex.Asin; FuncSub(subValue, f); tagL = isA ? 1 : 2; break;
-                        case 'c': f = isA ? Complex.Cos : Complex.Acos; FuncSub(subValue, f); tagL = isA ? 1 : 2; break;
-                        case 't': f = isA ? Complex.Tan : Complex.Atan; FuncSub(subValue, f); tagL = isA ? 1 : 2; break;
-                        case 'h':
-                            bool IsA = temp[begin - 3] != 'a'; // Don't need check because of ~
-                            switch (temp[begin - 2])
-                            {
-                                case 's': f = IsA ? Complex.Sinh : Complex.Asinh; FuncSub(subValue, f); tagL = IsA ? 2 : 3; break;
-                                case 'c': f = IsA ? Complex.Cosh : Complex.Acosh; FuncSub(subValue, f); tagL = IsA ? 2 : 3; break;
-                                case 't': f = IsA ? Complex.Tanh : Complex.Atanh; FuncSub(subValue, f); tagL = IsA ? 2 : 3; break;
-                            }
-                            break;
-                        case 'a': FuncSub(subValue, Complex.ModulusComplex); tagL = 1; break;
-                        case 'J': FuncSub(subValue, Complex.Conjugate); tagL = 1; break;
-                        case 'l': FuncSub(subValue, Complex.Log); tagL = 1; break;
-                        case 'E': FuncSub(subValue, Complex.Exp); tagL = 1; break;
-                        case '#': FuncSub(subValue, Complex.Ei); tagL = 2; break; // Special for complex
-                        case 'q': FuncSub(subValue, Complex.Sqrt); tagL = 1; break;
-                        case '!': FuncSub(subValue, Complex.Factorial); tagL = 1; break;
-                        default: break;
-                    }
-                }
-                braValues[count] = subValue;
-                begin -= tagL + 1; tagL = -1;
-                temp = MyString.Replace(temp, MyString.BracketSub(count++), begin--, end);
-            }
-            return BraFreePart(temp);
-        }
-        #endregion
-    }
+        public readonly unsafe double* Ptr() { fixed (double* ptr = &data[0]) { return ptr; } }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly unsafe double* RowPtr(int row) { fixed (double* ptr = &data[row * columns]) { return ptr; } }
+    } /// Optimized real matrices
 }

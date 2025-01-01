@@ -11,11 +11,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="bubble-sound-43207_[cut_0sec].wav" />
-    <None Remove="calm-zimpzon-main-version-07-55-10844.wav" />
-  </ItemGroup>
-
-  <ItemGroup>
     <COMReference Include="WMPLib">
       <WrapperTool>tlbimp</WrapperTool>
       <VersionMinor>0</VersionMinor>
@@ -28,8 +23,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="bubble-sound-43207_[cut_0sec].wav" />
-    <EmbeddedResource Include="calm-zimpzon-main-version-07-55-10844.wav" />
+    <EmbeddedResource Include="click.wav" />
+    <EmbeddedResource Include="bgm.wav" />
   </ItemGroup>
 
   <ItemGroup>

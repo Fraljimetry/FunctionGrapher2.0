@@ -664,6 +664,7 @@
             resources.ApplyResources(ClearButton, "ClearButton");
             ClearButton.ForeColor = Color.Black;
             ClearButton.Name = "ClearButton";
+            toolTip_ReadOnly.SetToolTip(ClearButton, resources.GetString("ClearButton.ToolTip"));
             ClearButton.UseVisualStyleBackColor = false;
             ClearButton.Click += ClearButton_Click;
             // 
@@ -869,16 +870,12 @@
             resources.ApplyResources(VScrollBarX, "VScrollBarX");
             VScrollBarX.Maximum = 1000;
             VScrollBarX.Name = "VScrollBarX";
-            VScrollBarX.MouseLeave += VScrollBarX_MouseLeave;
-            VScrollBarX.MouseHover += VScrollBarX_MouseHover;
             // 
             // VScrollBarY
             // 
             resources.ApplyResources(VScrollBarY, "VScrollBarY");
             VScrollBarY.Maximum = 1000;
             VScrollBarY.Name = "VScrollBarY";
-            VScrollBarY.MouseLeave += VScrollBarY_MouseLeave;
-            VScrollBarY.MouseHover += VScrollBarY_MouseHover;
             // 
             // ValueLabel
             // 
