@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net6.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows7.0</TargetFramework>
     <RootNamespace>FunctionGrapher2._0</RootNamespace>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
@@ -25,10 +25,6 @@
   <ItemGroup>
     <EmbeddedResource Include="click.wav" />
     <EmbeddedResource Include="bgm.wav" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="ComputeSharp" Version="3.0.1" />
   </ItemGroup>
 
   <ItemGroup>
